@@ -1,0 +1,17 @@
+[project]
+name = "apple-music-to-spotify-sync"
+version = "0.1.0"
+description = "Mirror Spotify playlists to same-named Apple Music playlists, with optional local audio copies"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "python-dotenv>=1.2.2",
+    "requests>=2.32.5",
+    "spotipy>=2.26.0",
+    "ytmusicapi>=1.12,<2",
+]
+
+[project.optional-dependencies]
+download = [
+    "spotdl>=4.5,<5",
+]

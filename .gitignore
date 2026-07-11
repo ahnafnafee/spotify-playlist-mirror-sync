@@ -1,0 +1,26 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Local secrets / auth / state
+.env
+*.log
+.cache
+.cache-*
+apple_resolve_cache.json
+song_cache.db
+ytmusic_browser.json
+ytmusic_resolve_cache.json
+data/
+downloads/
+
+# Obsolete state from the old Apple->Spotify direction
+synced_isrcs.json
+apple_spotify_uri_cache.json
