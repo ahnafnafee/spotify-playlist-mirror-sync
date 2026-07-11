@@ -277,23 +277,23 @@ already have, without downloading or syncing:
 uv run main.py --refresh-local        # fast; no spotDL, no Apple/YT
 ```
 
-**Resumable & incremental.** spotDL `sync` only downloads what's missing —
-already-downloaded files are skipped (`--overwrite skip`), tracks removed from
-the Spotify playlist are deleted locally, and an interrupted run just continues
-next pass (only the file in flight when it stopped is re-fetched). The Spotify
-playlist cover is saved at the highest resolution Spotify offers and refreshed
-only when it changes.
+**Resumable & incremental.** After the first full download, only the tracks
+you *newly added* are fetched — spotDL is handed just those tracks' URLs
+(`spotdl download`), so it skips the whole-playlist re-processing that `sync`
+does. Tracks you removed are deleted locally (their emptied album folders are
+pruned), already-downloaded files are skipped (`--overwrite skip`), and an
+interrupted run just continues next pass. The Spotify playlist cover is saved
+at the highest resolution Spotify offers and refreshed only when it changes.
 
-**spotDL is only invoked when it's actually needed.** Its startup is slow (it
-re-fetches the whole playlist and re-matches every track before reporting a
-single skip). Per-playlist state in `download_state.json` (Spotify
-`snapshot_id`, track ids, and the set of tracks spotDL couldn't source) gates
-it: an **unchanged** playlist is skipped outright, and a **changed** one runs
-spotDL only when a genuinely **new or removed** track appears — not merely
-because some permanently-unavailable tracks (OSTs / kanji titles / region-locked
-songs that aren't on YouTube) are still "missing". Those are remembered after
-the first attempt and no longer force a run. (Use `--refresh-local` to
-force-rebuild the m3u/tags/covers without downloading.)
+**spotDL is only invoked when it's actually needed.** Per-playlist state in
+`download_state.json` (Spotify `snapshot_id`, a track-id → file map, and the set
+of tracks spotDL couldn't source) drives it: an **unchanged** playlist is
+skipped outright; a **changed** one downloads only the genuinely **new** tracks
+(by URL) and deletes the **removed** ones — it does *not* re-run for
+permanently-unavailable tracks (OSTs / kanji titles / region-locked songs that
+aren't on YouTube), which are remembered after the first attempt. So steady
+state is fast: adding a song fetches just that song, not the whole playlist.
+(Use `--refresh-local` to force-rebuild the m3u/tags/covers without downloading.)
 
 **Metadata for Jellyfin.** spotDL embeds full Spotify tags + cover art on
 download. On top of that, finalize **backfills any missing** tags

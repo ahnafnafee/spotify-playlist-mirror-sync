@@ -245,17 +245,19 @@ def build_m3u(tracks, file_by_isrc, file_by_key, all_rels, newest_first=True):
 
 
 def finalize_folder(folder, tracks, newest_first=True):
-    """One tag scan of the folder that does three things per audio file: stamp
-    its mtime to the Spotify added-at date, backfill any missing Jellyfin tags
-    (title/artist/album/albumartist/isrc) from Spotify, and index it for the
-    date-ordered `<folder>.m3u8` (rewritten at the end). Returns
-    (stamped, unmatched, tagged)."""
+    """One tag scan of the folder that does everything per audio file: stamp its
+    mtime to the Spotify added-at date, backfill any missing Jellyfin tags
+    (title/artist/album/albumartist/isrc) + cover art from Spotify, and index it
+    for the date-ordered `<folder>.m3u8`. Returns
+    (stamped, unmatched, tagged, id_to_file, missing_ids) — the last two map
+    each track to its downloaded file (for removals) and list tracks with none
+    (unavailable), so the caller doesn't need a second scan."""
     import mutagen  # spotDL dependency
 
     by_isrc, by_key = added_at_indexes(tracks)
     t_by_isrc, t_by_key, t_by_stem = _track_lookups(tracks)
     backfill = os.getenv("LOCAL_MIRROR_TAG_BACKFILL", "1") != "0"
-    file_by_isrc, file_by_key, all_rels, img_cache = {}, {}, [], {}
+    file_by_isrc, file_by_key, file_by_stem, all_rels, img_cache = {}, {}, {}, [], {}
     stamped = unmatched = tagged = 0
     for path in sorted(folder.rglob("*")):
         if not path.is_file() or path.suffix.lower() not in AUDIO_EXTS:
@@ -277,6 +279,7 @@ def finalize_folder(folder, tracks, newest_first=True):
                 for artist in (_norm(raw), _norm(re.split(r"[,;/]", raw)[0])):
                     if artist:
                         file_by_key.setdefault(f"{artist}|{norm_title}", rel)
+        file_by_stem.setdefault(_norm(path.stem), rel)  # untagged files match by filename
         when = match_added_at(isrcs, title, artists, by_isrc, by_key)
         if when:
             os.utime(path, (when.timestamp(), when.timestamp()))
@@ -312,7 +315,20 @@ def finalize_folder(folder, tracks, newest_first=True):
 
     lines = build_m3u(tracks, file_by_isrc, file_by_key, all_rels, newest_first)
     (folder / f"{folder.name}.m3u8").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return stamped, unmatched, tagged
+
+    id_to_file, missing_ids = {}, []
+    for t in tracks:
+        rel = (t.get("isrc") and file_by_isrc.get(t["isrc"])) \
+            or next((file_by_key[k] for k in t["keys"] if k in file_by_key), None)
+        if not rel:
+            primary = t["artist"].split(",")[0].strip()
+            rel = next((file_by_stem[s] for s in (_norm(f"{primary} - {t['name']}"), _norm(f"{t['artist']} - {t['name']}"))
+                        if s in file_by_stem), None)
+        if rel and t.get("id"):
+            id_to_file[t["id"]] = rel
+        elif not rel and t.get("id"):
+            missing_ids.append(t["id"])
+    return stamped, unmatched, tagged, id_to_file, missing_ids
 
 
 def save_cover(playlist, folder):
@@ -336,14 +352,17 @@ def save_cover(playlist, folder):
         log_warn(f"cover art failed: {e!r}", tag="local")
 
 
-def build_sync_cmd(folder, save_file, playlist_url):
-    cmd = [sys.executable, "-m", "spotdl", "sync"]
-    cmd.append(str(save_file) if save_file.exists() else playlist_url)
-    if not save_file.exists():
-        cmd += ["--save-file", str(save_file)]
-    # Same --output every run so sync's delete step recomputes old paths. The
-    # playlist .m3u8 is written by finalize_folder (in date-added order), not by
-    # spotDL, whose order can't be controlled — so no --m3u here.
+def _chunks(seq, size):
+    for i in range(0, len(seq), size):
+        yield seq[i : i + size]
+
+
+def build_download_cmd(queries):
+    """`spotdl download <queries>` — queries is a playlist URL (full download)
+    or specific track URLs (incremental). No `sync`, so no whole-playlist
+    re-processing when only a few tracks are new; removals are handled here
+    instead, and the m3u is written by finalize_folder in date-added order."""
+    cmd = [sys.executable, "-m", "spotdl", "download", *queries]
     cmd += [
         "--output", "{album-artist}/{album}/{artists} - {title}.{output-ext}",
         "--overwrite", "skip",  # never re-download a file that already exists (resume-friendly)
@@ -453,83 +472,73 @@ def _stream_spotdl(cmd, folder, timeout_s):
     return counts["downloaded"], counts["skipped"], proc.returncode
 
 
-def _tracks_without_file(folder, tracks):
-    """Current tracks with no matching downloaded file (ISRC -> tags -> spotDL's
-    '{artists} - {title}' filename). Run after spotDL to learn which tracks it
-    couldn't source, so they aren't retried on every pass."""
-    import mutagen  # spotDL dependency
+def _diff_ids(current_ids, prev_files, unavailable):
+    """(new_ids, removed_ids): tracks to download (not yet downloaded and not
+    known-unavailable) and tracks that left the playlist (whose files we delete).
+    First run (empty prev) => every current track is new."""
+    have = set(prev_files) | set(unavailable)
+    current = set(current_ids)
+    return [i for i in current_ids if i not in have], [i for i in have if i not in current]
 
-    have_isrc, have_key, have_stem = set(), set(), set()
-    for path in folder.rglob("*"):
-        if not path.is_file() or path.suffix.lower() not in AUDIO_EXTS:
-            continue
+
+def _delete_removed(folder, removed_ids, prev_files):
+    """Delete the local files of tracks that left the playlist, pruning emptied
+    album/artist folders. (spotDL `sync` would do this, but we no longer sync.)"""
+    deleted = 0
+    for rid in removed_ids:
+        rel = prev_files.get(rid)
+        if not rel:
+            continue  # was unavailable / never downloaded
+        path = folder / rel
         try:
-            audio = mutagen.File(path, easy=True)
-        except Exception:
-            audio = None
-        for i in (audio.get("isrc") if audio else []) or []:
-            have_isrc.add(str(i).strip().upper())
-        norm_title = _norm((audio.get("title") if audio else [""])[0] if audio else "")
-        if norm_title:
-            for raw in (audio.get("artist") if audio else []) or []:
-                for a in (_norm(raw), _norm(re.split(r"[,;/]", raw)[0])):
-                    if a:
-                        have_key.add(f"{a}|{norm_title}")
-        have_stem.add(_norm(path.stem))
-
-    missing = []
-    for t in tracks:
-        if t.get("isrc") and t["isrc"] in have_isrc:
-            continue
-        if any(k in have_key for k in t["keys"]):
-            continue
-        primary = t["artist"].split(",")[0].strip()
-        if {_norm(f"{primary} - {t['name']}"), _norm(f"{t['artist']} - {t['name']}")} & have_stem:
-            continue
-        missing.append(t)
-    return missing
+            if path.exists():
+                path.unlink()
+                deleted += 1
+            for parent in (path.parent, path.parent.parent):
+                if parent != folder and parent.is_dir() and not any(parent.iterdir()):
+                    parent.rmdir()
+        except OSError:
+            pass
+    return deleted
 
 
-def _needs_spotdl(current_ids, prev_ids, unavailable):
-    """(run, new_ids, removed_ids). spotDL runs only when a genuinely new
-    downloadable track appears or one is removed — tracks already known to be
-    unavailable (spotDL couldn't source them) never trigger a run on their own.
-    First run (no prev) => run, since every track is 'new'."""
-    current, prev = set(current_ids), set(prev_ids)
-    new_ids = current - prev - set(unavailable)
-    removed = prev - current
-    return bool(new_ids or removed), new_ids, removed
-
-
-def _sync_one(sp, playlist, folder, timeout_s, tracks, run_spotdl, prev_unavailable):
+def _download_one(sp, playlist, folder, timeout_s, tracks, new_ids, removed_ids, prev_files):
+    """Delete removed tracks, download only the new ones (whole-playlist on the
+    first/large sync, otherwise just the new tracks' URLs so spotDL skips its
+    whole-playlist re-processing), then finalize. Returns
+    (clean, id_to_file, unavailable)."""
     name = playlist.get("name") or playlist["id"]
     folder.mkdir(parents=True, exist_ok=True)
     save_cover(playlist, folder)
     started = time.monotonic()
     newest_first = os.getenv("LOCAL_MIRROR_ORDER", "newest").strip().lower() != "oldest"
 
-    downloaded = skipped = code = 0
-    unavailable = set(prev_unavailable)
-    if run_spotdl:
-        log_note(f"'{name}': syncing downloads (spotDL)...", tag="local")
-        save_file = folder / ".sync.spotdl"  # spotDL requires the .spotdl extension
-        url = (playlist.get("external_urls") or {}).get("spotify") or f"https://open.spotify.com/playlist/{playlist['id']}"
-        downloaded, skipped, code = _stream_spotdl(build_sync_cmd(folder, save_file, url), folder, timeout_s)
+    removed = _delete_removed(folder, removed_ids, prev_files)
+    downloaded = code = 0
+    if new_ids:
+        if not prev_files or len(new_ids) > 40:  # first download or a big change
+            pl_url = (playlist.get("external_urls") or {}).get("spotify") or f"https://open.spotify.com/playlist/{playlist['id']}"
+            log_note(f"'{name}': downloading {len(new_ids)} track(s) (full playlist)...", tag="local")
+            downloaded, _, code = _stream_spotdl(build_download_cmd([pl_url]), folder, timeout_s)
+        else:  # just the new tracks — no whole-playlist re-processing
+            log_note(f"'{name}': downloading {len(new_ids)} new track(s)...", tag="local")
+            for chunk in _chunks([f"https://open.spotify.com/track/{i}" for i in new_ids], 40):
+                d, _, c = _stream_spotdl(build_download_cmd(chunk), folder, timeout_s)
+                downloaded += d
+                code = c or code
         if code != 0:
             log_warn(f"'{name}': spotdl exited {code} (partial progress kept; resumes next pass)", tag="local")
-        # Tracks still without a file are unavailable — record so they don't force a re-run.
-        unavailable = {t["id"] for t in _tracks_without_file(folder, tracks) if t.get("id")}
-    else:
-        log_note(f"'{name}': no new downloadable tracks - skipping spotDL", tag="local")
 
-    stamped, _, tagged = finalize_folder(folder, tracks, newest_first)
+    stamped, _, tagged, id_to_file, missing = finalize_folder(folder, tracks, newest_first)
     order = "newest-first" if newest_first else "oldest-first"
-    dl = f"{downloaded} downloaded, {skipped} already had, " if run_spotdl else ""
-    extra = f", {tagged} tagged" if tagged else ""
-    unavail = f", {len(unavailable)} unavailable" if unavailable else ""
-    log_summary(f"{name}: {dl}{stamped} date-stamped{extra}{unavail}, m3u {order}"
+    parts = [p for p in (f"{downloaded} downloaded" if downloaded else "",
+                         f"{removed} removed" if removed else "",
+                         f"{tagged} tagged" if tagged else "",
+                         f"{len(missing)} unavailable" if missing else "") if p]
+    summary = ", ".join(parts) or "no changes"
+    log_summary(f"{name}: {summary}, {stamped} date-stamped, m3u {order}"
                 f"  (in {fmt_secs(time.monotonic() - started)})", tag="local")
-    return (code == 0), unavailable  # clean = spotDL finished (not timed out / errored)
+    return (code == 0), id_to_file, set(missing)
 
 
 def _folder_for(base, playlist, used):
@@ -564,7 +573,7 @@ def refresh(sp, spotify_playlists, download_dir):
                 continue
             try:
                 save_cover(playlist, folder)
-                stamped, _, tagged = finalize_folder(folder, read_tracks(sp, playlist["id"]), newest_first)
+                stamped, _, tagged, _, _ = finalize_folder(folder, read_tracks(sp, playlist["id"]), newest_first)
                 order = "newest-first" if newest_first else "oldest-first"
                 extra = f", {tagged} tagged" if tagged else ""
                 log_summary(f"{name}: m3u {order}, {stamped} date-stamped{extra}", tag="local")
@@ -611,14 +620,14 @@ def run(sp, spotify_playlists, download_dir):
             try:
                 tracks = read_tracks(sp, pid)
                 current_ids = [t["id"] for t in tracks if t.get("id")]
-                run_spotdl, new_ids, removed = _needs_spotdl(current_ids, prev.get("ids", []), prev.get("unavailable", []))
-                if run_spotdl and prev:
-                    reason = ", ".join(p for p in (f"{len(new_ids)} new" if new_ids else "",
-                                                   f"{len(removed)} removed" if removed else "") if p)
-                    log_note(f"'{name}': {reason} - downloading", tag="local")
-                clean, unavailable = _sync_one(sp, playlist, folder, timeout_s, tracks, run_spotdl, prev.get("unavailable", []))
+                prev_files = prev.get("files", {})
+                new_ids, removed_ids = _diff_ids(current_ids, prev_files, prev.get("unavailable", []))
+                if not new_ids and not removed_ids and prev:
+                    log_note(f"'{name}': no new or removed tracks - refreshing m3u only", tag="local")
+                clean, id_to_file, unavailable = _download_one(
+                    sp, playlist, folder, timeout_s, tracks, new_ids, removed_ids, prev_files)
                 if clean:
-                    state[pid] = {"snapshot": snapshot, "ids": current_ids, "unavailable": sorted(unavailable)}
+                    state[pid] = {"snapshot": snapshot, "files": id_to_file, "unavailable": sorted(unavailable)}
                     dirty = True
             except Exception as e:
                 log_warn(f"'{name}': {e!r}", tag="local")

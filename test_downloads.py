@@ -69,25 +69,20 @@ def test_build_m3u_newest_first():
     assert order == ["A/Old.mp3", "A/Mid.mp3", "A/New.mp3"]
 
 
-def test_build_sync_cmd():
-    with tempfile.TemporaryDirectory() as tmp:
-        folder = Path(tmp)
-        save, url = folder / ".sync.spotdl", "https://open.spotify.com/playlist/abc"
-        cmd = lm.build_sync_cmd(folder, save, url)
-        assert "sync" in cmd and url in cmd and "--save-file" in cmd
-        assert cmd[cmd.index("--output") + 1] == "{album-artist}/{album}/{artists} - {title}.{output-ext}"
-        assert cmd[cmd.index("--overwrite") + 1] == "skip"  # existing files skipped
-        assert "--m3u" not in cmd  # we generate the m3u ourselves, in date-added order
-        ai = cmd.index("--audio")
-        assert cmd[ai + 1:ai + 3] == ["youtube-music", "youtube"]  # YT fallback for OST/instrumentals
-        save.write_text("{}")
-        os.environ["LOCAL_MIRROR_FORMAT"] = "flac"
-        try:
-            cmd = lm.build_sync_cmd(folder, save, url)
-        finally:
-            del os.environ["LOCAL_MIRROR_FORMAT"]
-        assert str(save) in cmd and "--save-file" not in cmd and url not in cmd
-        assert cmd[cmd.index("--format") + 1] == "flac"
+def test_build_download_cmd():
+    cmd = lm.build_download_cmd(["https://open.spotify.com/track/abc"])
+    assert cmd[1:4] == ["-m", "spotdl", "download"] and "sync" not in cmd
+    assert "https://open.spotify.com/track/abc" in cmd
+    assert cmd[cmd.index("--output") + 1] == "{album-artist}/{album}/{artists} - {title}.{output-ext}"
+    assert cmd[cmd.index("--overwrite") + 1] == "skip" and "--m3u" not in cmd
+    ai = cmd.index("--audio")
+    assert cmd[ai + 1:ai + 3] == ["youtube-music", "youtube"]  # YT fallback for OST/instrumentals
+    os.environ["LOCAL_MIRROR_FORMAT"] = "flac"
+    try:
+        cmd = lm.build_download_cmd(["x", "y"])
+    finally:
+        del os.environ["LOCAL_MIRROR_FORMAT"]
+    assert "x" in cmd and "y" in cmd and cmd[cmd.index("--format") + 1] == "flac"
 
 
 def test_stream_parsing():
@@ -140,31 +135,41 @@ def test_match_track():
     assert lm._match_track([], "Nope", ["X"], "x - y", by_isrc, by_key, by_stem) is None
 
 
-def test_needs_spotdl():
-    assert lm._needs_spotdl(["a", "b"], [], [])[0]  # first run downloads everything
-    assert not lm._needs_spotdl(["a", "b"], ["a", "b"], ["b"])[0]  # only known-unavailable "missing" -> no run
-    run, new, _ = lm._needs_spotdl(["a", "b", "c"], ["a", "b"], ["b"])
-    assert run and new == {"c"}  # a genuinely new track triggers a run
-    run, _, removed = lm._needs_spotdl(["a"], ["a", "b"], [])
-    assert run and removed == {"b"}  # a removal triggers a run
-    assert not lm._needs_spotdl(["b", "a"], ["a", "b"], [])[0]  # reorder alone does not
+def test_diff_ids():
+    assert lm._diff_ids(["a", "b"], {}, []) == (["a", "b"], [])  # first run: all new
+    assert lm._diff_ids(["a", "b"], {"a": "a.mp3"}, ["b"]) == ([], [])  # only known-unavailable "missing"
+    assert lm._diff_ids(["a", "b", "c"], {"a": "a.mp3"}, ["b"]) == (["c"], [])  # a genuinely new track
+    assert lm._diff_ids(["a"], {"a": "a.mp3", "b": "b.mp3"}, []) == ([], ["b"])  # a removed (downloaded) track
+    assert lm._diff_ids(["a"], {"a": "a.mp3"}, ["z"]) == ([], ["z"])  # a removed unavailable track
 
 
-def test_tracks_without_file():
+def test_delete_removed():
+    with tempfile.TemporaryDirectory() as tmp:
+        folder = Path(tmp)
+        (folder / "Artist" / "Album").mkdir(parents=True)
+        f = folder / "Artist" / "Album" / "song.mp3"
+        f.write_bytes(b"x")
+        deleted = lm._delete_removed(folder, ["id1", "id2"], {"id1": "Artist/Album/song.mp3"})
+        assert deleted == 1 and not f.exists()
+        assert not (folder / "Artist").exists()  # emptied album/artist dirs pruned
+
+
+def test_finalize_returns_id_to_file():
     def tk(name, artist, tid):
         keys = set()
         title = lm._norm(name)
         for a in {lm._norm(artist), lm._norm(artist.split(",")[0])}:
             if a:
                 keys.add(f"{a}|{title}")
-        return {"id": tid, "name": name, "artist": artist, "isrc": None, "keys": keys}
+        return {"id": tid, "name": name, "artist": artist, "isrc": None, "keys": keys,
+                "when": datetime(2024, 1, 1, tzinfo=timezone.utc), "duration_ms": 1000}
 
     with tempfile.TemporaryDirectory() as tmp:
-        folder = Path(tmp)
-        (folder / "A").mkdir()
+        folder = Path(tmp) / "PL"
+        (folder / "A").mkdir(parents=True)
         (folder / "A" / "Alpha - Song One.mp3").write_bytes(b"x")  # untagged -> matched by filename stem
-        missing = lm._tracks_without_file(folder, [tk("Song One", "Alpha", "id1"), tk("Song Two", "Beta", "id2")])
-        assert [t["id"] for t in missing] == ["id2"]  # present one covered, absent one flagged
+        *_, id_to_file, missing = lm.finalize_folder(folder, [tk("Song One", "Alpha", "id1"), tk("Song Two", "Beta", "id2")])
+        assert id_to_file == {"id1": "A/Alpha - Song One.mp3"} and missing == ["id2"]
 
 
 def test_fetch_image_cache():
@@ -205,11 +210,11 @@ def test_run_skips_without_spotdl():
 
 
 def test_run_name_collision():
-    calls, real = [], (lm.importlib.util.find_spec, lm.ffmpeg_available, lm._sync_one, lm.read_tracks)
+    calls, real = [], (lm.importlib.util.find_spec, lm.ffmpeg_available, lm._download_one, lm.read_tracks)
     lm.importlib.util.find_spec = lambda name: object()
     lm.ffmpeg_available = lambda: True
     lm.read_tracks = lambda sp, pid: []
-    lm._sync_one = lambda sp, pl, folder, t, tracks, run, unavail: (calls.append(folder.name), (True, set()))[1]
+    lm._download_one = lambda sp, pl, folder, t, tracks, new, rem, prev: (calls.append(folder.name), (True, {}, set()))[1]
     try:
         with tempfile.TemporaryDirectory() as tmp:
             os.environ["DOWNLOAD_STATE_FILE"] = os.path.join(tmp, "state.json")  # don't pollute cwd
@@ -219,7 +224,7 @@ def test_run_name_collision():
             finally:
                 del os.environ["DOWNLOAD_STATE_FILE"]
     finally:
-        lm.importlib.util.find_spec, lm.ffmpeg_available, lm._sync_one, lm.read_tracks = real
+        lm.importlib.util.find_spec, lm.ffmpeg_available, lm._download_one, lm.read_tracks = real
     assert calls == ["Mix", "Mix [id222222]", "Chill"]
 
 
