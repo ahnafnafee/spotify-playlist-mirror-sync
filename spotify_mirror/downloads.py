@@ -209,14 +209,28 @@ def _stream_spotdl(cmd, folder, timeout_s):
     loop ends when the pipe closes, completed downloads are preserved and the
     next pass resumes."""
     verbose = os.getenv("LOCAL_MIRROR_VERBOSE") == "1"
-    downloaded = skipped = 0
-    # Force the child (spotDL) to UTF-8: otherwise its own logging crashes on
-    # cp1252 encoding non-Latin track names ("--- Logging error ---" spam).
-    env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
+    counts = {"downloaded": 0, "skipped": 0}
+    # PYTHONUNBUFFERED so spotDL's lines reach us promptly (a piped child
+    # block-buffers otherwise); PYTHONUTF8/IOENCODING so its own logging doesn't
+    # crash (cp1252) on non-Latin track names.
+    env = {**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             text=True, encoding="utf-8", errors="replace", bufsize=1, cwd=str(folder), env=env)
     killer = threading.Timer(timeout_s, proc.kill)
     killer.start()
+
+    # Heartbeat: spotDL can go silent for a while (searching, or downloading one
+    # big file), so tick every 15s with the running counts — never looks stuck.
+    stop = threading.Event()
+
+    def heartbeat():
+        start = time.monotonic()
+        while not stop.wait(15):
+            log_note(f"...still working: {counts['downloaded']} downloaded, {counts['skipped']} skipped"
+                     f" ({fmt_secs(time.monotonic() - start)} elapsed)", tag="local")
+
+    ticker = threading.Thread(target=heartbeat, daemon=True)
+    ticker.start()
     try:
         for raw in proc.stdout:
             line = raw.strip()
@@ -225,11 +239,11 @@ def _stream_spotdl(cmd, folder, timeout_s):
             if verbose:
                 log_note(line, tag="local")
             if line.startswith("Downloaded"):
-                downloaded += 1
+                counts["downloaded"] += 1
                 title = line.split('"')[1] if '"' in line else line[len("Downloaded"):].strip(' :')
                 log_download(f"downloaded: {title}", tag="local")
             elif line.startswith("Skipping"):
-                skipped += 1
+                counts["skipped"] += 1
             elif "No results found" in line:
                 log_miss(f"no audio source: {line.split(':', 1)[-1].strip()}", tag="local")
             elif line.startswith("--- Logging error") or "charmap_encode" in line or line.startswith("self.handleError"):
@@ -238,10 +252,11 @@ def _stream_spotdl(cmd, folder, timeout_s):
                 log_warn(line[:200], tag="local")
         proc.wait()
     finally:
+        stop.set()
         killer.cancel()
         if proc.poll() is None:  # interrupted/timed out — don't orphan the child
             proc.kill()
-    return downloaded, skipped, proc.returncode
+    return counts["downloaded"], counts["skipped"], proc.returncode
 
 
 def _sync_one(sp, playlist, folder, timeout_s):
@@ -252,6 +267,7 @@ def _sync_one(sp, playlist, folder, timeout_s):
     save_file = folder / ".sync.spotdl"  # spotDL requires the .spotdl extension
     url = (playlist.get("external_urls") or {}).get("spotify") or f"https://open.spotify.com/playlist/{playlist['id']}"
     started = time.monotonic()
+    log_note(f"'{name}': syncing downloads (spotDL)...", tag="local")
     downloaded, skipped, code = _stream_spotdl(build_sync_cmd(folder, save_file, url), folder, timeout_s)
     if code != 0:
         log_warn(f"'{name}': spotdl exited {code} (partial progress kept; resumes next pass)", tag="local")
