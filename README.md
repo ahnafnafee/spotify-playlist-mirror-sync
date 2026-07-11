@@ -301,6 +301,15 @@ run orphans old files), `LOCAL_MIRROR_TIMEOUT` (seconds per playlist per pass,
 default 3600), `LOCAL_MIRROR_ORDER` (newest/oldest),
 `LOCAL_MIRROR_AUDIO_PROVIDERS`, `LOCAL_MIRROR_VERBOSE=1` (echo all spotDL output).
 
+**Playlist covers in Jellyfin.** Jellyfin *ignores* any cover file next to an
+m3u playlist — it auto-tiles the tracks' embedded art. The only way to set a
+real playlist cover is Jellyfin's API, so this is opt-in: set `JELLYFIN_URL`
+and `JELLYFIN_API_KEY` (Jellyfin → Dashboard → API Keys) and each `--execute`
+pass uploads the Spotify cover onto the matching Jellyfin playlist. The
+playlist must already exist in Jellyfin (scanned from the m3u), so the flow is:
+sync → Jellyfin library scan → next sync sets covers. From Docker, point
+`JELLYFIN_URL` at `http://host.docker.internal:8096`.
+
 Download-mirror caveats:
 
 - **Private playlists fail** in spotDL's default auth — make mirrored playlists

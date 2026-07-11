@@ -191,6 +191,50 @@ def test_run_name_collision():
     assert calls == ["Mix", "Mix [id222222]", "Chill"]
 
 
+def test_jellyfin_push_covers():
+    import base64
+
+    from spotify_mirror import jellyfin
+
+    calls = {"post": []}
+
+    def fake_get(u, headers=None, params=None, timeout=None):
+        if "/Items" in u:
+            return types.SimpleNamespace(json=lambda: {"Items": [{"Id": "p1", "Name": "Aurora"}]},
+                                         raise_for_status=lambda: None)
+        return types.SimpleNamespace(content=b"IMG", raise_for_status=lambda: None)  # image download
+
+    def fake_post(u, headers=None, data=None, timeout=None):
+        calls["post"].append((u, headers, data))
+        return types.SimpleNamespace(ok=True, status_code=200)
+
+    real = (jellyfin.requests.get, jellyfin.requests.post)
+    jellyfin.requests.get, jellyfin.requests.post = fake_get, fake_post
+    os.environ["JELLYFIN_URL"], os.environ["JELLYFIN_API_KEY"] = "http://jf:8096", "k"
+    try:
+        jellyfin.push_covers([
+            {"name": "Aurora", "images": [{"url": "http://img/a.jpg"}]},
+            {"name": "NotInJellyfin", "images": [{"url": "http://img/b.jpg"}]},  # skipped, not found
+        ])
+    finally:
+        jellyfin.requests.get, jellyfin.requests.post = real
+        del os.environ["JELLYFIN_URL"], os.environ["JELLYFIN_API_KEY"]
+
+    assert len(calls["post"]) == 1  # only the matched playlist
+    u, headers, data = calls["post"][0]
+    assert u.endswith("/Items/p1/Images/Primary")
+    assert headers.get("Content-Type") == "image/jpeg"
+    assert data == base64.b64encode(b"IMG")  # base64 body
+
+
+def test_jellyfin_skips_without_env():
+    from spotify_mirror import jellyfin
+
+    for k in ("JELLYFIN_URL", "JELLYFIN_API_KEY"):
+        os.environ.pop(k, None)
+    jellyfin.push_covers([{"name": "X", "images": [{"url": "u"}]}])  # no env -> no-op, no network
+
+
 if __name__ == "__main__":
     for name in sorted(k for k in dict(globals()) if k.startswith("test_")):
         globals()[name]()

@@ -211,3 +211,9 @@ def run_pass(opts):
             downloads.run(sp, selected, opts.download_dir)
         except Exception as e:
             log_warn(f"local download mirror failed (playlist sync unaffected): {e!r}", tag="local")
+
+    # Push real playlist covers to Jellyfin (opt-in; no-op without JELLYFIN_*).
+    if opts.execute:
+        from . import jellyfin
+
+        jellyfin.push_covers(selected)
