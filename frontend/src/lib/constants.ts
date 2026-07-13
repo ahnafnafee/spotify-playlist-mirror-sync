@@ -12,7 +12,7 @@ interface StateStyle {
  * word — color is never the only signal. */
 export const ACCOUNT_STATE_STYLES: Record<AccountState, StateStyle> = {
   connected: { label: 'Connected', glyph: '✓', badge: 'bg-success-soft text-success', text: 'text-success' },
-  expired: { label: 'Expired — reconnect', glyph: '~', badge: 'bg-warning-soft text-warning', text: 'text-warning' },
+  expired: { label: 'Expired, reconnect', glyph: '~', badge: 'bg-warning-soft text-warning', text: 'text-warning' },
   error: { label: 'Error', glyph: '!', badge: 'bg-danger-soft text-danger', text: 'text-danger' },
   unconfigured: { label: 'Not configured', glyph: '·', badge: 'bg-neutral-soft text-neutral', text: 'text-neutral' },
 }

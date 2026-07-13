@@ -104,7 +104,7 @@ export default function Playlists() {
         ) : (
           <EmptyState
             title="No pairings yet"
-            description="Playlists with the same name already sync automatically — pairings are for everything else."
+            description="Playlists with the same name already sync automatically. Pairings are for everything else."
           />
         )}
       </section>

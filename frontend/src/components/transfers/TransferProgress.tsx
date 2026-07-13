@@ -64,7 +64,7 @@ export function TransferProgress({ job, error }: { job: TransferJob | null; erro
         <div
           role="progressbar"
           aria-label="Transfer in progress"
-          aria-valuetext="In progress — exact completion time isn't known"
+          aria-valuetext="In progress, exact completion time isn't known"
           className="relative h-1.5 w-full overflow-hidden rounded-full bg-inset"
         >
           <div className="absolute inset-y-0 left-0 w-1/3 rounded-full bg-accent [animation:indeterminate-bar_1.4s_ease-in-out_infinite]" />

@@ -42,7 +42,7 @@ function buildItems(accounts: Account[] | null, status: SyncStatus | null): Need
         key: `acct-${a.id}`,
         icon: LuTriangleAlert,
         title: `${a.name} isn't set up`,
-        description: a.detail || "Connect it to include it in syncs — it's skipped until then.",
+        description: a.detail || "Connect it to include it in syncs. It's skipped until then.",
         action: { label: 'Connect', to: '/accounts' },
       })
     }
@@ -53,7 +53,7 @@ function buildItems(accounts: Account[] | null, status: SyncStatus | null): Need
       key: 'last-pass-error',
       icon: LuCircleAlert,
       title: 'The last pass failed',
-      description: status.last.error || "It didn't complete successfully — the services it reached are unaffected.",
+      description: status.last.error || "It didn't complete successfully. The services it reached are unaffected.",
     })
   }
 
@@ -64,7 +64,7 @@ function buildItems(accounts: Account[] | null, status: SyncStatus | null): Need
       icon: LuTriangleAlert,
       title: `${heldTotal} change${heldTotal === 1 ? '' : 's'} held from the last pass`,
       description: 'A removal passed your safety cap, or a service needs a follow-up pass. Nothing was lost.',
-      action: { label: 'Review caps', to: '/settings' },
+      action: { label: 'Review caps', to: '/sync' },
     })
   }
 

@@ -35,7 +35,7 @@ export default function Transfers() {
       <div>
         <h1 className="text-xl font-bold tracking-tight text-text sm:text-[22px]">Transfers</h1>
         <p className="mt-1 text-sm text-text-3">
-          Copy a single playlist from one connected service to another, one time — no ongoing sync.
+          Copy a single playlist from one connected service to another, one time. No ongoing sync.
         </p>
       </div>
 

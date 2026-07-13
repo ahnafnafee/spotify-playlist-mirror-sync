@@ -110,7 +110,7 @@ export function TransferSetupForm({ accounts, entries, onStarted }: Props) {
       <div>
         <h2 className="text-sm font-bold text-text">Set up a transfer</h2>
         <p className="mt-1 text-xs text-text-3">
-          A one-off copy — existing tracks on the destination are kept, this only adds.
+          A one-off copy. Existing tracks on the destination are kept, this only adds.
         </p>
       </div>
 
@@ -130,7 +130,7 @@ export function TransferSetupForm({ accounts, entries, onStarted }: Props) {
                 style={{ backgroundImage: 'radial-gradient(var(--color-border) 1px, transparent 1px)', backgroundSize: '9px 9px' }}
               >
                 <span className="rounded bg-inset px-2 py-0.5 font-mono text-[10px] font-bold tracking-[0.14em] text-text-2">
-                  DECK A — SOURCE
+                  DECK A · SOURCE
                 </span>
               </div>
               <div className="flex flex-1 flex-col gap-3.5 p-4">
@@ -157,7 +157,7 @@ export function TransferSetupForm({ accounts, entries, onStarted }: Props) {
               {sourcePlaylist && (
                 <div className="flex items-baseline gap-2.5 border-t border-border px-4 py-2.5">
                   <span className="font-mono text-[26px] font-bold leading-none tracking-wide text-accent">
-                    {sourcePlaylist.count ?? '—'}
+                    {sourcePlaylist.count ?? '?'}
                   </span>
                   <span className="font-mono text-[9px] tracking-[0.1em] text-text-3">
                     {sourcePlaylist.count === null ? 'TRACK COUNT UNAVAILABLE' : 'TRACKS · SNAPSHOT AT COPY TIME'}
@@ -185,7 +185,7 @@ export function TransferSetupForm({ accounts, entries, onStarted }: Props) {
                 style={{ backgroundImage: 'radial-gradient(var(--color-border) 1px, transparent 1px)', backgroundSize: '9px 9px' }}
               >
                 <span className="rounded bg-inset px-2 py-0.5 font-mono text-[10px] font-bold tracking-[0.14em] text-text-2">
-                  DECK B — DESTINATION
+                  DECK B · DESTINATION
                 </span>
               </div>
               <div className="flex flex-1 flex-col gap-3.5 p-4">
@@ -228,7 +228,7 @@ export function TransferSetupForm({ accounts, entries, onStarted }: Props) {
                 ) : (
                   <TextField
                     label="New playlist name"
-                    help="Defaults to the source playlist's name — feel free to change it."
+                    help="Defaults to the source playlist's name. Feel free to change it."
                     required
                     value={destName}
                     onChange={(e) => setDestName(e.target.value)}
@@ -241,7 +241,7 @@ export function TransferSetupForm({ accounts, entries, onStarted }: Props) {
                   aria-hidden="true"
                 />
                 <span className="font-mono text-[9px] tracking-[0.1em] text-text-3">
-                  {destMode === 'create' ? 'WRITE MODE — CREATE NEW · NAME FROM DECK A' : 'WRITE MODE — ADD TO EXISTING'}
+                  {destMode === 'create' ? 'WRITE MODE · CREATE NEW · NAME FROM DECK A' : 'WRITE MODE · ADD TO EXISTING'}
                 </span>
               </div>
             </div>
@@ -266,7 +266,7 @@ export function TransferSetupForm({ accounts, entries, onStarted }: Props) {
                 destMode === 'create'
                   ? `a new playlist named "${destName.trim()}"`
                   : `"${destPlaylist?.name ?? ''}"`
-              } on ${tagLabel(destProvider)}. Existing tracks on the destination are kept — this only adds.`
+              } on ${tagLabel(destProvider)}. Existing tracks on the destination are kept, this only adds.`
             : 'This will start copying the selected playlist.'
         }
         confirmLabel="Copy playlist"

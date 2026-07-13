@@ -1,5 +1,5 @@
 // Shared types mirroring the FastAPI backend's JSON contract exactly
-// (spotify_mirror/web/routers/*.py + spotify_mirror/accounts/*.py). Keep this
+// (omni_sync/web/routers/*.py + omni_sync/accounts/*.py). Keep this
 // file in sync with the backend if the contract ever changes shape.
 
 export type AuthKind = 'oauth_redirect' | 'oauth_device' | 'token_paste' | 'api_key'
@@ -82,18 +82,66 @@ export interface PassSummary {
   per_target: TargetSummary[]
 }
 
-export interface SyncStatus {
+/** One entry of GET /api/sync/status's `jobs` array — this job's own
+ * schedule/run state, alongside its most recent pass. */
+export interface SyncJobStatus {
+  id: string
+  name: string
+  enabled: boolean
   running: boolean
-  scheduled: boolean
-  interval_s: number
+  next_run_at: number | null
   last: PassSummary | null
-  /** Epoch seconds of the next scheduled pass, or `null` when auto-sync is
-   * paused (or nothing has ever been scheduled). */
-  next_run_at?: number | null
-  /** While a pass runs: "preview" (dry run — checks everything, changes
-   * nothing) or "execute" (a real sync); null/absent when idle. */
-  mode?: 'preview' | 'execute' | null
 }
+
+export interface SyncStatus {
+  /** Any job currently running — a scheduled pass or a manual run. */
+  running: boolean
+  /** While a pass runs: "preview" (dry run — checks everything, changes
+   * nothing) or "execute" (a real sync); null when idle. */
+  mode: 'preview' | 'execute' | null
+  /** id of the job currently running, or null when idle — look it up in
+   * `jobs` for its name. */
+  running_job: string | null
+  /** The global auto-sync master switch (POST /api/sync/schedule). */
+  master: boolean
+  /** `master` AND at least one job is enabled — the dashboard's "auto-sync
+   * is active" signal. */
+  scheduled: boolean
+  /** Epoch seconds of the soonest scheduled run across all enabled jobs, or
+   * `null` when nothing is scheduled. */
+  next_run_at: number | null
+  /** The most recent pass from any job. */
+  last: PassSummary | null
+  jobs: SyncJobStatus[]
+}
+
+export type SyncMode = 'oneway' | 'nway'
+
+/** GET/POST/PUT /api/syncs — one independent, named sync configuration
+ * (multiple jobs can run side by side, Soundiiz-style). `providers` and
+ * `playlists` are comma-separated strings — the same convention as the
+ * legacy /api/settings PROVIDERS/PLAYLISTS keys, not arrays. The download
+ * folder/format themselves are global (`/api/settings` DOWNLOAD_DIR /
+ * LOCAL_MIRROR_FORMAT, see Settings) — a job only opts in via `download`. */
+export interface SyncJob {
+  id: string
+  name: string
+  enabled: boolean
+  mode: SyncMode
+  source: string
+  providers: string
+  playlists: string
+  interval: string
+  max_adds: number
+  max_removals: number
+  download: boolean
+}
+
+/** POST /api/syncs (create) / PUT /api/syncs/{id} (merge-update) body —
+ * every field optional. Create fills in SyncJob's own server-side defaults
+ * for anything omitted; update leaves omitted fields untouched rather than
+ * resetting them. */
+export type SyncJobUpsertRequest = Partial<SyncJob>
 
 export interface RunResponse {
   queued: true

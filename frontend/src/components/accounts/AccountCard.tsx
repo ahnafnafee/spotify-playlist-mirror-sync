@@ -13,10 +13,10 @@ import { StatusPill } from '../ui/StatusPill'
 import { ConnectWizardModal } from './ConnectWizardModal'
 
 const SERVICE_BLURBS: Record<string, string> = {
-  spotify: 'The source of truth — every other service mirrors what you curate here.',
+  spotify: 'The source of truth. Every other service mirrors what you curate here.',
   apple: 'Paste a couple of tokens from the Apple Music web player. No developer account needed.',
-  ytmusic: 'Sign in with a Google account using a short code — approve it from your phone or another tab.',
-  jellyfin: 'Optional — pushes real playlist cover art to your Jellyfin server.',
+  ytmusic: 'Sign in with a Google account using a short code. Approve it from your phone or another tab.',
+  jellyfin: 'Optional. Pushes real playlist cover art to your Jellyfin server.',
 }
 
 const AUTH_KIND_LABELS: Record<AuthKind, string> = {

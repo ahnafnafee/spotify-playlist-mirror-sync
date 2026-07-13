@@ -15,6 +15,8 @@ import type {
   Settings,
   StartTransferRequest,
   StartTransferResponse,
+  SyncJob,
+  SyncJobUpsertRequest,
   SyncStatus,
   TransferJob,
 } from './types'
@@ -76,10 +78,19 @@ export const api = {
   getSettings: () => request<Settings>('/api/settings'),
   saveSettings: (values: Settings) => request<OkResponse>('/api/settings', { method: 'PUT', body: JSON.stringify(values) }),
 
-  // Sync
+  // Sync (global: run-all + the auto-sync master switch)
   runSync: (execute: boolean) => request<RunResponse>(`/api/sync/run?execute=${execute ? 1 : 0}`, { method: 'POST' }),
   getSyncStatus: () => request<SyncStatus>('/api/sync/status'),
   setSchedule: (body: ScheduleRequest) => request<SyncStatus>('/api/sync/schedule', json(body)),
+
+  // Sync jobs (named, multiple — each an independent sync configuration)
+  getSyncs: () => request<SyncJob[]>('/api/syncs'),
+  createSync: (values: SyncJobUpsertRequest) => request<SyncJob>('/api/syncs', json(values)),
+  updateSync: (id: string, values: SyncJobUpsertRequest) =>
+    request<SyncJob>(`/api/syncs/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(values) }),
+  deleteSync: (id: string) => request<OkResponse>(`/api/syncs/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  runSyncJob: (id: string, execute: boolean) =>
+    request<RunResponse>(`/api/syncs/${encodeURIComponent(id)}/run?execute=${execute ? 1 : 0}`, { method: 'POST' }),
 
   // Playlists (browse)
   getPlaylists: (provider: string) =>

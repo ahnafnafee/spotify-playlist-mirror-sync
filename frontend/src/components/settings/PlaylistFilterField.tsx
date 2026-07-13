@@ -189,8 +189,8 @@ export function PlaylistFilterField({ value, onChange }: PlaylistFilterFieldProp
           label="Playlists to sync"
           help={
             !source.hasConnectedAccounts
-              ? 'Connect an account on the Accounts page to pick playlists here — or enter names manually.'
-              : `Couldn't load playlists from ${source.providerLabel} — enter names manually.`
+              ? 'Connect an account on the Accounts page to pick playlists here, or enter names manually.'
+              : `Couldn't load playlists from ${source.providerLabel}. Enter names manually.`
           }
           placeholder="e.g. Discover Weekly, Roadtrip"
           value={value}
@@ -259,7 +259,7 @@ export function PlaylistFilterField({ value, onChange }: PlaylistFilterFieldProp
       {manualNames.length > 0 && (
         <div className="flex flex-col gap-1.5">
           <span className="text-[11.5px] text-text-3">
-            Also included — not found on {source.providerId === 'spotify' ? 'Spotify' : 'a connected service'}:
+            Also included, not found on {source.providerId === 'spotify' ? 'Spotify' : 'a connected service'}:
           </span>
           <div className="flex flex-wrap gap-1.5">
             {manualNames.map((name) => (

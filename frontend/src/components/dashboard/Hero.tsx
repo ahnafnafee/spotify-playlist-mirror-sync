@@ -43,7 +43,7 @@ function heroCopy(accounts: Account[] | null): { headline: string; detail: strin
   const names = joinNames(problems.map((p) => p.name))
   return {
     headline: "Almost everything's in sync.",
-    detail: `${connected.length} of ${accounts.length} services are up to date. ${names} need${problems.length === 1 ? 's' : ''} attention — only the syncs that touch ${problems.length === 1 ? 'it' : 'them'} are affected.`,
+    detail: `${connected.length} of ${accounts.length} services are up to date. ${names} need${problems.length === 1 ? 's' : ''} attention. Only the syncs that touch ${problems.length === 1 ? 'it' : 'them'} are affected.`,
   }
 }
 
@@ -62,6 +62,7 @@ function lastRunText(status: SyncStatus | null): string {
 export function Hero({ accounts, status, displayName }: HeroProps) {
   if (status?.running) {
     const previewing = status.mode === 'preview'
+    const runningJobName = status.jobs.find((j) => j.id === status.running_job)?.name
     return (
       <div className="flex flex-1 flex-col justify-center gap-3">
         <span className="inline-flex items-center gap-2 font-mono text-[11px] font-bold tracking-[0.14em] text-accent">
@@ -69,13 +70,19 @@ export function Hero({ accounts, status, displayName }: HeroProps) {
           {previewing ? 'PREVIEWING NOW' : 'SYNCING NOW'}
         </span>
         <h1 className="text-display text-[26px] text-text sm:text-[32px]">
-          {previewing ? 'Previewing your libraries…' : 'Syncing your libraries…'}
+          {previewing
+            ? runningJobName
+              ? `Previewing "${runningJobName}"…`
+              : 'Previewing your libraries…'
+            : runningJobName
+              ? `Syncing "${runningJobName}"…`
+              : 'Syncing your libraries…'}
         </h1>
         <p className="flex items-center gap-2 text-sm text-text-2">
           <LuClock className="size-4 shrink-0 text-text-3" aria-hidden="true" />
           {previewing
-            ? 'A dry run — checking what would change, without touching your libraries.'
-            : 'You can leave this page — it keeps running in the background.'}
+            ? 'A dry run: checking what would change, without touching your libraries.'
+            : 'You can leave this page. It keeps running in the background.'}
         </p>
       </div>
     )

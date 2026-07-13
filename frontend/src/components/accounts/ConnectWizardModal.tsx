@@ -61,11 +61,11 @@ interface ConnectGuideContent {
 // concise per-field `help` hints defined on each connector (services/accounts).
 const CONNECT_GUIDES: Record<string, ConnectGuideContent> = {
   spotify: {
-    intro: 'Spotify needs a free developer app you create once — it gives you a Client ID and secret.',
+    intro: 'Spotify needs a free developer app you create once. It gives you a Client ID and secret.',
     steps: [
       <>Open the Spotify Developer Dashboard and log in.</>,
       <>
-        Click <strong>Create app</strong> — name it anything (e.g. “Omni Sync”); website and description don’t matter.
+        Click <strong>Create app</strong>; name it anything (e.g. “Omni Sync”); website and description don’t matter.
       </>,
       <>
         Open the app → <strong>Settings</strong>, copy the <strong>Client ID</strong>, then click{' '}
@@ -76,7 +76,7 @@ const CONNECT_GUIDES: Record<string, ConnectGuideContent> = {
     link: { href: 'https://developer.spotify.com/dashboard', label: 'Open Spotify dashboard' },
   },
   apple: {
-    intro: 'No developer account needed — copy two tokens the Apple Music web player already uses.',
+    intro: 'No developer account needed. Copy two tokens the Apple Music web player already uses.',
     steps: [
       <>
         Open <GuideLink href="https://music.apple.com">music.apple.com</GuideLink> and sign in.
@@ -99,10 +99,10 @@ const CONNECT_GUIDES: Record<string, ConnectGuideContent> = {
         <strong>Media-User-Token</strong> = the <Code>media-user-token</Code> header value.
       </>,
       <>
-        <strong>Storefront</strong> = your country code (<Code>us</Code>, <Code>gb</Code>, …) — optional.
+        <strong>Storefront</strong> = your country code (<Code>us</Code>, <Code>gb</Code>, …), optional.
       </>,
     ],
-    note: 'These tokens expire periodically — if Apple later shows “expired”, just re-paste them.',
+    note: 'These tokens expire periodically. If Apple later shows “expired”, just re-paste them.',
   },
   ytmusic: {
     intro: 'YouTube Music uses a free Google Cloud OAuth client you set up once.',
@@ -126,7 +126,7 @@ const CONNECT_GUIDES: Record<string, ConnectGuideContent> = {
     link: { href: 'https://console.cloud.google.com/apis/credentials', label: 'Open Google Cloud credentials' },
   },
   jellyfin: {
-    intro: 'Optional — connect Jellyfin to push real playlist cover art. You need the server URL and an API key.',
+    intro: 'Optional: connect Jellyfin to push real playlist cover art. You need the server URL and an API key.',
     steps: [
       <>
         <strong>Server URL</strong>: where Jellyfin runs, e.g. <Code>http://localhost:8096</Code>.
@@ -138,7 +138,7 @@ const CONNECT_GUIDES: Record<string, ConnectGuideContent> = {
         Click <strong>+</strong>, name the key “Omni Sync”, and copy it.
       </>,
       <>
-        Paste the URL and key below — <strong>User ID</strong> is optional.
+        Paste the URL and key below; <strong>User ID</strong> is optional.
       </>,
     ],
   },
@@ -500,7 +500,7 @@ function HeaderPasteBox({ fields, onFilled }: { fields: AccountField[]; onFilled
       </summary>
       <div className="flex flex-col gap-2.5 border-t border-border px-3.5 py-3">
         <p className="text-xs leading-relaxed text-text-3">
-          Paste the request headers block from your browser's dev tools (its “Copy request headers” action) — the
+          Paste the request headers block from your browser's dev tools (its “Copy request headers” action), and the
           matching fields below fill themselves in.
         </p>
         <textarea
@@ -541,7 +541,7 @@ function RedirectStep({ info }: { info: ConnectRedirectResponse }) {
         </div>
       </div>
       <p className="text-sm text-text-3">
-        Once that's saved on their side, continue to sign in — it opens in a new tab. Come back to this one when
+        Once that's saved on their side, continue to sign in. It opens in a new tab, so come back to this one when
         you're done; it picks up the connection automatically.
       </p>
       <div className="flex justify-end">
@@ -568,7 +568,7 @@ function DeviceStep({ info }: { info: ConnectDeviceResponse }) {
       </LinkButton>
       <p className="flex items-center gap-2 text-xs text-text-3">
         <Spinner className="size-3.5 shrink-0" />
-        Waiting for authorization — checking automatically every {info.interval}s.
+        Waiting for authorization, checking automatically every {info.interval}s.
       </p>
     </div>
   )

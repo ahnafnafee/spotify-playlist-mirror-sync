@@ -45,7 +45,7 @@ export function LiveFeed() {
         paused={paused}
         onPausedChange={setPaused}
         emptyTitle="No activity yet"
-        emptyDescription="Start a sync to see live progress here — every track added, removed, or held will show up in real time."
+        emptyDescription="Start a sync to see live progress here. Every track added, removed, or held will show up in real time."
         ariaLabel="Live sync activity"
       />
     </div>
