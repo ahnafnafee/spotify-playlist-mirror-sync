@@ -27,6 +27,24 @@ def _pl_id(pl):
     return pl.get("id") or pl.get("playlistId") or _pl_name(pl)
 
 
+def _pl_image(pl):
+    """Best-effort cover-art URL across provider shapes (empty string if none)."""
+    imgs = pl.get("images")  # Spotify: [{"url": ...}]
+    if imgs and (imgs[0] or {}).get("url"):
+        return imgs[0]["url"]
+    art = (pl.get("attributes") or {}).get("artwork") or {}  # Apple: {w}x{h} template
+    if art.get("url"):
+        return art["url"].replace("{w}", "300").replace("{h}", "300")
+    thumbs = pl.get("thumbnails") or (pl.get("snippet") or {}).get("thumbnails")  # YouTube
+    if isinstance(thumbs, list) and thumbs:
+        return (thumbs[-1] or {}).get("url", "")
+    if isinstance(thumbs, dict):
+        for size in ("high", "medium", "default"):
+            if thumbs.get(size):
+                return thumbs[size].get("url", "")
+    return ""
+
+
 class PlaylistService:
     def __init__(self, settings):
         self._settings = settings
@@ -49,7 +67,8 @@ class PlaylistService:
         except Exception:
             return []
         rows = [
-            {"id": _pl_id(pl), "name": _pl_name(pl), "count": target.playlist_count(pl)}
+            {"id": _pl_id(pl), "name": _pl_name(pl), "count": target.playlist_count(pl),
+             "image": _pl_image(pl)}
             for pl in by_name.values()
         ]
         return sorted(rows, key=lambda r: (r["name"] or "").casefold())

@@ -27,7 +27,16 @@ def test_browse_normalizes_rows(monkeypatch, tmp_path):
 
     monkeypatch.setattr("spotify_mirror.services.playlists.build_one", lambda pid, opts, sp=None: FakeTarget())
     rows = PlaylistService(SettingsStore(dir=tmp_path)).browse("apple")
-    assert rows == [{"id": "1", "name": "Chill", "count": 5}]
+    assert rows == [{"id": "1", "name": "Chill", "count": 5, "image": ""}]
+
+
+def test_pl_image_extraction():
+    from spotify_mirror.services.playlists import _pl_image
+
+    assert _pl_image({"images": [{"url": "http://sp/cover.jpg"}]}) == "http://sp/cover.jpg"
+    assert _pl_image({"attributes": {"artwork": {"url": "http://ap/{w}x{h}bb.jpg"}}}) == "http://ap/300x300bb.jpg"
+    assert _pl_image({"thumbnails": [{"url": "a"}, {"url": "http://yt/big.jpg"}]}) == "http://yt/big.jpg"
+    assert _pl_image({"name": "no art"}) == ""
 
 
 def test_linkstore_roundtrip(tmp_path):
