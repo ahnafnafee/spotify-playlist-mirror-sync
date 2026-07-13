@@ -119,6 +119,7 @@ class YTMusicTarget(MirrorTarget):
             self._tok = json.load(f)
         self.cache_file = os.getenv("YTMUSIC_CACHE_FILE", "ytmusic_resolve_cache.json")
         self._session = requests.Session()
+        self._rate_limited = False  # set once search hits the rate limit; defer the rest of the pass
 
     # -- auth ------------------------------------------------------------------
     def _access(self):
@@ -160,8 +161,11 @@ class YTMusicTarget(MirrorTarget):
                 raise TargetAuthError(f"YouTube refused {method} {path} (403 {reason or 'forbidden'}).")
             if r.status_code == 404 and ok404:
                 return None
-            if r.status_code == 429 and attempt < attempts - 1:
-                wait = float(r.headers.get("Retry-After") or 20) + random.uniform(1, 8)
+            if r.status_code == 429 and attempt < 1:
+                # One short retry for a transient blip; a sustained limit (the
+                # first-run backlog vs the daily quota) is handled by the caller
+                # deferring the rest of the pass rather than fighting each track.
+                wait = float(r.headers.get("Retry-After") or 8) + random.uniform(1, 4)
                 log(f"  rate-limited by YouTube; waiting {int(wait)}s", tag=self.tag)
                 time.sleep(wait)
                 continue
@@ -246,14 +250,24 @@ class YTMusicTarget(MirrorTarget):
         return best_id, method
 
     def _search(self, track, primary):
+        if self._rate_limited:
+            return None, None  # already rate-limited this pass — don't pile on; resolve next pass
         queries = [f"{track['name']} {primary}".strip()]
         rom = f"{romanized(track['name'])} {romanized(primary)}".strip()
         if rom and rom != normalize_text(queries[0]):
             queries.append(rom)  # romanized retry only runs if the first query misses
         for query in queries:
-            items = self._request("GET", "search", params={
-                "part": "snippet", "q": query, "type": "video",
-                "videoCategoryId": "10", "maxResults": 10}).json().get("items", [])
+            try:
+                items = self._request("GET", "search", params={
+                    "part": "snippet", "q": query, "type": "video",
+                    "videoCategoryId": "10", "maxResults": 10}).json().get("items", [])
+            except requests.HTTPError as e:
+                if "429" not in str(e):
+                    raise
+                self._rate_limited = True  # daily quota / burst limit hit — stop searching this pass
+                log_warn("YouTube search rate limit reached — deferring the rest of the resolves to the next "
+                         "pass (raise the Data API quota to converge faster)", tag=self.tag)
+                return None, None
             durations = self._durations([it["id"]["videoId"] for it in items if it.get("id", {}).get("videoId")])
             best = None  # (sort_key, videoId, is_topic)
             for it in items:
@@ -276,14 +290,22 @@ class YTMusicTarget(MirrorTarget):
         return None, None
 
     def _durations(self, video_ids):
-        """{videoId: duration_ms} via batched videos.list (1 unit per 50 ids)."""
+        """{videoId: duration_ms} via batched videos.list (1 unit per 50 ids).
+        Best-effort: on a rate limit, flag and return what we have (scoring just
+        loses the duration anchor for the rest)."""
         out = {}
         for i in range(0, len(video_ids), 50):
             chunk = video_ids[i:i + 50]
             if not chunk:
                 continue
-            for it in self._request("GET", "videos",
-                                    params={"part": "contentDetails", "id": ",".join(chunk)}).json().get("items", []):
+            try:
+                resp = self._request("GET", "videos", params={"part": "contentDetails", "id": ",".join(chunk)})
+            except requests.HTTPError as e:
+                if "429" not in str(e):
+                    raise
+                self._rate_limited = True
+                return out
+            for it in resp.json().get("items", []):
                 out[it["id"]] = _duration_ms(it.get("contentDetails", {}).get("duration"))
         return out
 
