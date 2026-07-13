@@ -572,8 +572,8 @@ export default function Sync() {
                   Discard
                 </Button>
               )}
-              <Button type="submit" size="sm" loading={saving} disabled={!formValid || !dirty}>
-                Save changes
+              <Button type="submit" size="sm" loading={saving} disabled={!formValid || (!dirty && !isLastStep)}>
+                {isLastStep && !dirty ? 'Save' : 'Save changes'}
               </Button>
             </div>
           </div>
