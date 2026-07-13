@@ -1,8 +1,10 @@
-"""Spotify — the read-only source of truth.
+"""Spotify — playlist source, and (in N-way mode) a writable peer.
 
-Only the `playlist-read-private` scope is requested; the tool never modifies
-anything on Spotify. Track dicts produced here are the common currency the
-mirror targets consume.
+By default only the `playlist-read-private` scope is requested and the tool
+never modifies anything on Spotify. When built writable (N-way sync), the
+`playlist-modify-*` scopes are added — which invalidates a read-only token
+cache and forces a one-time re-auth. Track dicts produced here are the common
+currency the mirror targets consume.
 """
 
 import html
@@ -39,15 +41,19 @@ def _retry(fn, what, attempts=5):
             time.sleep(wait)
 
 
-def client():
+def client(writable=False):
+    # playlist-read-private alone keeps a pre-existing read-only token cache
+    # valid. Adding the modify scopes (N-way mode) changes the scope string,
+    # which invalidates that cache and forces a one-time interactive re-auth.
+    scope = "playlist-read-private"
+    if writable:
+        scope += " playlist-modify-private playlist-modify-public"
     return spotipy.Spotify(
         auth_manager=SpotifyOAuth(
             client_id=required_env("SPOTIFY_CLIENT_ID"),
             client_secret=required_env("SPOTIFY_CLIENT_SECRET"),
             redirect_uri=os.getenv("SPOTIFY_REDIRECT_URI", DEFAULT_SPOTIFY_REDIRECT_URI),
-            # playlist-read-private alone keeps pre-existing token caches valid;
-            # collaborative playlists aren't listed without the extra scope.
-            scope="playlist-read-private",
+            scope=scope,
             cache_path=os.getenv("SPOTIFY_TOKEN_CACHE", ".cache"),
             open_browser=os.getenv("SPOTIFY_OAUTH_OPEN_BROWSER", "1") != "0",
         ),

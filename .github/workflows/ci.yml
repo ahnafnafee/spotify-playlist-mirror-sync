@@ -30,5 +30,8 @@ jobs:
       - name: Matching + archive tests
         run: uv run test_matching.py
 
+      - name: N-way reconcile tests
+        run: uv run test_reconcile.py
+
       - name: Download-mirror tests
         run: uv run --with mutagen python test_downloads.py

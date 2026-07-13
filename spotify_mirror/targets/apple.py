@@ -160,6 +160,16 @@ class AppleMusicTarget(MirrorTarget):
             cache["dirty"] = True
             polite_sleep(0.25)
 
+    def native_isrc_map(self, cache):
+        # Apple library reads omit ISRC, but its filter[isrc] resolve cache maps
+        # ISRC -> catalog candidates; reverse it to catalog_id -> ISRC.
+        out = {}
+        for isrc, cands in (cache.get("isrc") or {}).items():
+            for c in cands:
+                if c.get("id"):
+                    out.setdefault(c["id"], isrc)
+        return out
+
     def expected_ids(self, sp_tracks, links, cache):
         out = {}
         for t in sp_tracks:

@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 
 from . import archive, spotify
 from .logs import fmt_counts, fmt_secs, log, log_note, log_section, log_summary, log_warn, paint
-from .targets import TargetAuthError, build_targets, mirror_pair
+from .targets import TargetAuthError, build_peers, build_targets, mirror_pair, reconcile
 
 
 def _load_json(path):
@@ -103,7 +103,9 @@ def run_target(target, selected, get_sp_tracks, songs, opts):
 
 def run_pass(opts):
     load_dotenv(override=True)  # pick up re-captured tokens without a restart
-    sp = spotify.client()
+    # Writable (modify scopes) only for an actual N-way execute — so dry-runs
+    # preview without forcing the one-time re-auth a scope change triggers.
+    sp = spotify.client(writable=(opts.sync_mode == "nway" and opts.execute))
     sp_by_name = spotify.playlists_by_name(sp)
 
     wanted = {n.strip().casefold() for n in opts.playlists.split(",") if n.strip()} if opts.playlists else None
@@ -111,7 +113,7 @@ def run_pass(opts):
 
     mode = paint("EXECUTE", "green", "bold") if opts.execute else paint("DRY RUN", "yellow", "bold")
     log(paint("═══ Spotify playlist mirror ═══", "bold", "cyan"))
-    log(f"  mode: {mode}")
+    log(f"  mode: {mode}" + (paint("   ⇄ N-WAY", "magenta", "bold") if opts.sync_mode == "nway" else ""))
     log(f"  playlists: {paint(str(len(selected)), 'bold')} selected"
         + (paint(f" ({', '.join(p['name'] for p in selected)})", "grey") if selected else ""))
     if wanted:
@@ -126,6 +128,15 @@ def run_pass(opts):
         from . import downloads
 
         downloads.refresh(sp, selected, opts.download_dir)
+        return
+
+    if opts.sync_mode == "nway":
+        songs = archive.connect(opts.song_cache_file)
+        try:
+            _run_nway(opts, sp, selected, songs)
+        finally:
+            songs.close()
+        _post_sync(opts, sp, selected)
         return
 
     targets = build_targets(opts)
@@ -204,6 +215,11 @@ def run_pass(opts):
         if isinstance(err, TargetAuthError):
             raise err  # fatal; main() decides exit vs. loop-continue
 
+    _post_sync(opts, sp, selected)
+
+
+def _post_sync(opts, sp, selected):
+    """Local download mirror + Jellyfin covers — shared by one-way and N-way."""
     if opts.download_dir and opts.execute:
         try:
             from . import downloads
@@ -217,3 +233,56 @@ def run_pass(opts):
         from . import jellyfin
 
         jellyfin.push_covers(selected)
+
+
+def _run_nway(opts, sp, selected, songs):
+    """Bidirectional reconcile: each selected playlist across all peer providers,
+    sequentially (each reconcile reads then writes every peer). A change on any
+    provider propagates to the others via the stored canonical snapshot."""
+    peers = build_peers(opts, sp)
+    if len(peers) < 2:
+        log_warn("N-way sync needs >=2 configured providers (Spotify + Apple and/or YouTube Music)", indent="  ")
+        return
+    log(f"  peers: {paint(', '.join(p.name for p in peers), 'cyan')}"
+        + (paint(f"   local downloads -> {opts.download_dir}", "grey") if opts.download_dir and opts.execute else ""))
+
+    dirs = {p.source: p.list_playlists() for p in peers}
+    caches = {p.source: load_cache(p.cache_file) for p in peers}
+    try:
+        for sp_playlist in selected:
+            name = sp_playlist["name"]
+            key = name.strip().casefold()
+            playlists = {}
+            for p in peers:
+                pl = dirs[p.source].get(key)
+                if not pl:
+                    if not opts.execute:
+                        log_note(f"{name}: no {p.name} playlist yet - would create on --execute", tag=p.tag)
+                        continue
+                    try:
+                        pl = p.create(sp_playlist)
+                        log_note(f"created {p.name} playlist '{name}'", tag=p.tag)
+                    except TargetAuthError:
+                        raise
+                    except Exception as e:
+                        log_warn(f"create {p.name} '{name}' failed: {e!r}", tag=p.tag)
+                        continue
+                if not p.is_editable(pl):
+                    log_warn(f"{name}: {p.name} playlist not editable - skipped", tag=p.tag)
+                    continue
+                playlists[p.source] = pl
+
+            active = [p for p in peers if p.source in playlists]
+            if len(active) < 2:
+                log_note(f"{name}: fewer than 2 providers have this playlist - skipped", tag="sync")
+                continue
+            try:
+                reconcile(active, name, playlists, caches, songs,
+                          execute=opts.execute, max_removals=opts.max_removals, max_adds=opts.max_adds)
+            except TargetAuthError:
+                raise
+            except Exception as e:
+                log_warn(f"'{name}' reconcile failed, continuing: {e!r}", tag="sync")
+    finally:
+        for p in peers:
+            save_cache(p.cache_file, caches[p.source])
