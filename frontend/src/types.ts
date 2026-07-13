@@ -146,3 +146,52 @@ export interface LinkUpsertRequest {
   source: string | null
   enabled: boolean
 }
+
+export type TransferStatus = 'queued' | 'running' | 'done' | 'error' | 'busy'
+
+export interface TransferEndpoint {
+  provider: string
+  playlist_id: string
+  playlist_name: string
+}
+
+/** A destination track that couldn't be automatically matched during a
+ * transfer, awaiting a manually pasted match. */
+export interface TransferConflict {
+  key: string
+  name: string
+  artist: string
+  resolved: boolean
+}
+
+/** GET /api/transfers/{id} — a one-off "copy playlist A -> B" job. */
+export interface TransferJob {
+  id: string
+  status: TransferStatus
+  source: TransferEndpoint
+  dest: TransferEndpoint
+  added: number
+  deferred: number
+  conflicts: TransferConflict[]
+  error: string | null
+}
+
+/** POST /api/transfers body. `dest_playlist_id: null` creates a new playlist
+ * named `dest_name` on the destination instead of copying into an existing
+ * one. */
+export interface StartTransferRequest {
+  source_provider: string
+  source_playlist_id: string
+  dest_provider: string
+  dest_playlist_id: string | null
+  dest_name: string
+}
+
+export interface StartTransferResponse {
+  job_id: string
+}
+
+export interface ResolveConflictRequest {
+  key: string
+  dest_id: string
+}

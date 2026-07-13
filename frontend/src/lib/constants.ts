@@ -1,4 +1,4 @@
-import type { AccountState, EventKind } from '../types'
+import type { AccountState, EventKind, TransferStatus } from '../types'
 
 export const ACCOUNT_STATE_STYLES: Record<AccountState, { label: string; badge: string; dot: string }> = {
   connected: {
@@ -89,6 +89,34 @@ export const KIND_STYLES: Record<EventKind, KindStyle> = {
     text: 'font-bold text-slate-700 dark:text-slate-200',
     dot: 'bg-slate-500',
     row: 'bg-slate-100 dark:bg-slate-800/60',
+  },
+}
+
+export const TRANSFER_STATUS_STYLES: Record<TransferStatus, { label: string; badge: string; dot: string }> = {
+  queued: {
+    label: 'Queued',
+    badge: 'bg-slate-200/70 text-slate-600 dark:bg-slate-800 dark:text-slate-400',
+    dot: 'bg-slate-400',
+  },
+  busy: {
+    label: 'Waiting for the sync engine…',
+    badge: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
+    dot: 'bg-amber-500',
+  },
+  running: {
+    label: 'Running…',
+    badge: 'bg-brand-100 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300',
+    dot: 'bg-brand-500',
+  },
+  done: {
+    label: 'Done',
+    badge: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300',
+    dot: 'bg-emerald-500',
+  },
+  error: {
+    label: 'Error',
+    badge: 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300',
+    dot: 'bg-rose-500',
   },
 }
 

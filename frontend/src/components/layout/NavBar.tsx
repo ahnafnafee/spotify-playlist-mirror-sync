@@ -9,6 +9,7 @@ const NAV_ITEMS: Array<{ to: string; label: string; end: boolean }> = [
   { to: '/', label: 'Dashboard', end: true },
   { to: '/accounts', label: 'Accounts', end: false },
   { to: '/playlists', label: 'Playlists', end: false },
+  { to: '/transfers', label: 'Transfers', end: false },
   { to: '/settings', label: 'Settings', end: false },
 ]
 

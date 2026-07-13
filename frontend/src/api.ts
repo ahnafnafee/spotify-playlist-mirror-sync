@@ -9,10 +9,14 @@ import type {
   PlaylistLink,
   PollResponse,
   ProviderPlaylist,
+  ResolveConflictRequest,
   RunResponse,
   ScheduleRequest,
   Settings,
+  StartTransferRequest,
+  StartTransferResponse,
   SyncStatus,
+  TransferJob,
 } from './types'
 
 export class ApiError extends Error {
@@ -85,6 +89,12 @@ export const api = {
   getLinks: () => request<PlaylistLink[]>('/api/links'),
   upsertLink: (link: LinkUpsertRequest) => request<PlaylistLink>('/api/links', { method: 'PUT', body: JSON.stringify(link) }),
   deleteLink: (id: string) => request<OkResponse>(`/api/links/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  // Transfers (one-off playlist copy)
+  startTransfer: (body: StartTransferRequest) => request<StartTransferResponse>('/api/transfers', json(body)),
+  getTransfer: (id: string) => request<TransferJob>(`/api/transfers/${encodeURIComponent(id)}`),
+  resolveTransferConflict: (id: string, body: ResolveConflictRequest) =>
+    request<OkResponse>(`/api/transfers/${encodeURIComponent(id)}/resolve`, json(body)),
 }
 
 export function errorMessage(err: unknown): string {

@@ -37,6 +37,9 @@ uv run uvicorn spotify_mirror.web:app --host 0.0.0.0 --port 8080
 - **Pair playlists across services** — browse each service's playlists and
   explicitly link differently-named ones (e.g. Spotify "Workout" ↔ Apple "Gym
   Music"), overriding the default same-name matching.
+- **Transfer a playlist one-off** — copy any playlist from one service to another
+  (into a new destination or an existing one), watch it live, and review any tracks
+  that couldn't be matched.
 - **Live sync view** — a real-time feed of matches, adds, removals, and holds as a
   pass runs, with per-service counters.
 - **Run now or on a schedule** — the web app owns the schedule and one-off runs;
