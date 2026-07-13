@@ -63,17 +63,17 @@ def test_links_crud(tmp_path):
 def test_transfers_start_and_status(tmp_path, monkeypatch):
     from spotify_mirror.transfers import TransferService
 
-    monkeypatch.setattr(TransferService, "submit", lambda self, spec: {"id": "j1", "status": "queued"})
-    monkeypatch.setattr(
-        TransferService, "get",
-        lambda self, jid: {"id": jid, "status": "done", "conflicts": [], "_dest_cache_file": "x"},
-    )
+    # No providers -> the job errors fast (no network); exercises the REAL submit
+    # path (asyncio.create_task) so the async-endpoint requirement can't regress.
+    monkeypatch.setattr(TransferService, "_build", lambda self, pid, opts: None)
     with TestClient(_app(tmp_path)) as client:
         r = client.post("/api/transfers", json={"source_provider": "apple", "source_playlist_id": "p1",
                                                 "dest_provider": "ytmusic", "dest_playlist_id": "p2"})
-        assert r.status_code == 202 and r.json()["job_id"] == "j1"
-        g = client.get("/api/transfers/j1").json()
-        assert g["status"] == "done"
+        assert r.status_code == 202
+        jid = r.json()["job_id"]
+        assert jid
+        g = client.get(f"/api/transfers/{jid}").json()
+        assert g["id"] == jid and "status" in g
         assert "_dest_cache_file" not in g  # internal field hidden from the API
 
 

@@ -7,7 +7,9 @@ router = APIRouter()
 
 
 @router.post("/api/transfers")
-def start_transfer(request: Request, body: dict = Body(...)):
+async def start_transfer(request: Request, body: dict = Body(...)):
+    # async so submit()'s asyncio.create_task has a running loop (a sync endpoint
+    # runs in a threadpool with no loop and would 500).
     job = request.app.state.transfers.submit({
         "source_provider": body["source_provider"],
         "source_playlist_id": body["source_playlist_id"],
