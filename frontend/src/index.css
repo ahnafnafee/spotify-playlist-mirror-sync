@@ -177,6 +177,20 @@
   }
 }
 
+/* A sliding indicator for genuinely-indeterminate progress (a transfer in
+   flight has no percentage to report) — referenced via the arbitrary
+   `[animation:indeterminate-bar_...]` syntax. `prefers-reduced-motion`
+   already zeroes every animation-duration globally (see @layer base above),
+   so this needs no separate reduced-motion handling. */
+@keyframes indeterminate-bar {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
 html,
 body {
   /* Defense in depth against sideways page scroll on narrow viewports.
