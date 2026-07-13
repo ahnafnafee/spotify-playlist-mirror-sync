@@ -19,33 +19,41 @@ from ..engine.targets import build_one
 from ..engine.targets.base import TargetAuthError, _normalize
 
 
-def transfer(source, dest, src_pl, dest_pl, cache, *, execute, max_adds):
+def transfer(source, dest, src_pl, dest_pl, cache, *, execute, max_adds, on_progress=None):
     """Copy `src_pl` (on `source`) into `dest_pl` (on `dest`). Returns
     {added, deferred, not_found: [{name, artist, key}]}. `not_found` are tracks
-    that resolved to nothing on the destination — the conflict queue."""
+    that resolved to nothing on the destination — the conflict queue.
+
+    `on_progress(processed, total, added)` (optional) fires after each source
+    track is examined, so a caller can surface live progress against the total.
+    """
     src = [_normalize(t, source.source) for t in source.playlist_tracks(src_pl)]
     dst = [_normalize(t, dest.source) for t in dest.playlist_tracks(dest_pl)]
     seen = set().union(*(spotify_track_keys(n) for n in dst)) if dst else set()
 
+    total = len(src)
+    if on_progress:
+        on_progress(0, total, 0)  # publish the total once source is read, before matching begins
     additions, not_found = [], []
-    for norm in sorted(src, key=lambda n: n["added_at"]):
+    for i, norm in enumerate(sorted(src, key=lambda n: n["added_at"]), 1):
         keys = spotify_track_keys(norm)
-        if keys & seen:
-            continue  # already on the destination
-        try:
-            tid, _ = dest.resolve(norm, cache)
-        except TargetAuthError:
-            raise
-        except Exception:
-            tid = None
-        if tid:
-            additions.append(tid)
-            seen |= keys
-            log_add(f"{norm['name']} - {norm['artist']}", dry=not execute, tag="transfer")
-        else:
-            not_found.append({"name": norm["name"], "artist": norm["artist"],
-                              "key": track_key(norm["name"], norm["artist"])})
-            log_miss(f"no match: {norm['name']} - {norm['artist']}", tag="transfer")
+        if not keys & seen:  # skip tracks already on the destination
+            try:
+                tid, _ = dest.resolve(norm, cache)
+            except TargetAuthError:
+                raise
+            except Exception:
+                tid = None
+            if tid:
+                additions.append(tid)
+                seen |= keys
+                log_add(f"{norm['name']} - {norm['artist']}", dry=not execute, tag="transfer")
+            else:
+                not_found.append({"name": norm["name"], "artist": norm["artist"],
+                                  "key": track_key(norm["name"], norm["artist"])})
+                log_miss(f"no match: {norm['name']} - {norm['artist']}", tag="transfer")
+        if on_progress:
+            on_progress(i, total, len(additions))
 
     deferred = max(0, len(additions) - max_adds)
     additions = additions[:max_adds]
@@ -90,6 +98,7 @@ class TransferService:
                      "playlist_id": spec.get("dest_playlist_id"),
                      "playlist_name": spec.get("dest_name", "")},
             "added": 0, "deferred": 0, "conflicts": [], "error": None,
+            "total": 0, "processed": 0,  # live progress: source tracks examined / total
         }
         self._jobs[job["id"]] = job
         asyncio.create_task(self._run(job, spec))
@@ -136,7 +145,12 @@ class TransferService:
             job["dest"]["playlist_name"] = dst.playlist_name(dest_pl)
             cache = load_cache(dst.cache_file)
             self._emit("section", f"transfer: {job['source']['playlist_name']} -> {dst.name}", "transfer")
-            res = transfer(src, dst, src_pl, dest_pl, cache, execute=True, max_adds=opts.max_adds)
+
+            def on_progress(processed, total, added):
+                job["processed"], job["total"], job["added"] = processed, total, added
+
+            res = transfer(src, dst, src_pl, dest_pl, cache, execute=True,
+                           max_adds=opts.max_adds, on_progress=on_progress)
             save_cache(dst.cache_file, cache)
             return res
 

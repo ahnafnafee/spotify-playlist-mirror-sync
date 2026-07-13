@@ -52,6 +52,16 @@ def test_transfer_dry_run_adds_nothing():
     assert res["added"] == 1 and added == []               # counted, but not written
 
 
+def test_transfer_reports_progress():
+    added, calls = [], []
+    transfer(_Src(), _dst_factory(added), {"id": "s"}, {"id": "d"},
+             {"search": {}, "isrc": {}, "dirty": False}, execute=True, max_adds=100,
+             on_progress=lambda p, t, a: calls.append((p, t, a)))
+    assert calls[0] == (0, 3, 0)                            # total published before matching
+    assert [p for p, _, _ in calls] == [0, 1, 2, 3]        # monotonic scan over all 3 tracks
+    assert calls[-1] == (3, 3, 1)                           # every track scanned, 1 added
+
+
 def test_run_exclusive_queues_behind_sync(monkeypatch, tmp_path):
     order = []
 
@@ -143,6 +153,7 @@ def test_transfer_service_reports_conflicts(monkeypatch, tmp_path):
     j = out["job"]
     assert j["status"] == "done"
     assert j["added"] == 0
+    assert j["total"] == 1 and j["processed"] == 1          # live counters populated via the service
     assert [c["name"] for c in j["conflicts"]] == ["Song"]
     assert j["conflicts"][0]["resolved"] is False
 

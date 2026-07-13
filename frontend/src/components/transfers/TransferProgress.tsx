@@ -48,6 +48,11 @@ export function TransferProgress({ job, error }: { job: TransferJob | null; erro
   const unresolvedConflicts = job.conflicts.filter((c) => !c.resolved).length
   const isRunning = job.status === 'running'
   const isDone = job.status === 'done'
+  // `total` is 0 until the source playlist finishes reading; only then can the
+  // bar go determinate. `processed` counts source tracks examined, not tracks
+  // added (misses and already-present tracks still advance the scan).
+  const hasTotal = job.total > 0
+  const pct = hasTotal ? Math.min(100, Math.round((job.processed / job.total) * 100)) : 0
 
   return (
     <Card className="flex flex-col gap-4 p-4 sm:p-6">
@@ -60,16 +65,31 @@ export function TransferProgress({ job, error }: { job: TransferJob | null; erro
         <Pill toneClasses={style.badge} label={style.label} pulsing={isRunning} />
       </div>
 
-      {isRunning && (
-        <div
-          role="progressbar"
-          aria-label="Transfer in progress"
-          aria-valuetext="In progress, exact completion time isn't known"
-          className="relative h-1.5 w-full overflow-hidden rounded-full bg-inset"
-        >
-          <div className="absolute inset-y-0 left-0 w-1/3 rounded-full bg-accent [animation:indeterminate-bar_1.4s_ease-in-out_infinite]" />
-        </div>
-      )}
+      {isRunning &&
+        (hasTotal ? (
+          <div
+            role="progressbar"
+            aria-label="Transfer progress"
+            aria-valuenow={job.processed}
+            aria-valuemin={0}
+            aria-valuemax={job.total}
+            className="relative h-1.5 w-full overflow-hidden rounded-full bg-inset"
+          >
+            <div
+              className="absolute inset-y-0 left-0 rounded-full bg-accent transition-[width] duration-500 ease-out"
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+        ) : (
+          <div
+            role="progressbar"
+            aria-label="Transfer in progress"
+            aria-valuetext="Reading the source playlist"
+            className="relative h-1.5 w-full overflow-hidden rounded-full bg-inset"
+          >
+            <div className="absolute inset-y-0 left-0 w-1/3 rounded-full bg-accent [animation:indeterminate-bar_1.4s_ease-in-out_infinite]" />
+          </div>
+        ))}
 
       {job.error && <p className="rounded-control bg-danger-soft px-3 py-2 text-sm text-danger">{job.error}</p>}
 
@@ -81,12 +101,21 @@ export function TransferProgress({ job, error }: { job: TransferJob | null; erro
               <span className="font-mono text-[10px] tracking-[0.1em] text-text-3">ADDED SO FAR</span>
             </div>
           ) : (
-            // Nothing's landed yet — a prominent "+0" reads as broken, so
-            // this stays subtle until the count actually has something to
-            // show, then the live counter above takes over.
+            // Nothing's landed yet — a prominent "+0" reads as broken, so this
+            // stays a subtle status line until the count has something to show,
+            // then the live counter above takes over. The label distinguishes
+            // the source-read phase (no total yet) from active matching.
             <div className="flex items-center gap-2 text-sm text-text-2">
               <Spinner className="size-3.5 shrink-0" aria-hidden="true" />
-              Copying…
+              {hasTotal ? 'Matching tracks…' : 'Reading source playlist…'}
+            </div>
+          )}
+          {hasTotal && (
+            <div className="flex items-baseline gap-1.5">
+              <span className="font-mono text-sm font-semibold text-text-2">
+                {job.processed} / {job.total}
+              </span>
+              <span className="font-mono text-[10px] tracking-[0.1em] text-text-3">SCANNED</span>
             </div>
           )}
           {job.deferred > 0 && <CountChip tone="warning" value={job.deferred} />}

@@ -230,6 +230,11 @@ export interface TransferJob {
   dest: TransferEndpoint
   added: number
   deferred: number
+  /** Total source tracks to examine, or 0 before the source playlist has been
+   * read (the progress bar stays indeterminate until then). */
+  total: number
+  /** Source tracks examined so far (0..total) — drives the determinate bar. */
+  processed: number
   conflicts: TransferConflict[]
   error: string | null
 }
