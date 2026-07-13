@@ -28,6 +28,7 @@ class SyncService:
         self._task = None
         self._stopping = False
         self._last_summary = None
+        self._next_run_at = None  # epoch seconds of the next scheduled pass, or None
         self._lock = asyncio.Lock()  # one engine writer at a time (syncs + transfers)
 
     async def run_now(self, execute=False):
@@ -75,18 +76,22 @@ class SyncService:
 
     async def _scheduler(self):
         while not self._stopping:
+            interval = self._interval_s()
+            self._next_run_at = time.time() + interval
             try:
-                await asyncio.sleep(self._interval_s())
+                await asyncio.sleep(interval)
             except asyncio.CancelledError:
                 break
             if not self._stopping:
                 await self.run_now(execute=True)
+        self._next_run_at = None
 
     def status(self):
         return {
             "running": self._running,
             "scheduled": self._task is not None and not self._task.done(),
             "interval_s": self._interval_s(),
+            "next_run_at": self._next_run_at,
             "last": self._last_summary,
         }
 
