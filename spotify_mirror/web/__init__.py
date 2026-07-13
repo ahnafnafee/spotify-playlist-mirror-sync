@@ -19,18 +19,23 @@ from ..services.events import EventBus
 from ..services.playlists import LinkStore
 from ..services.settings import SettingsStore
 from ..services.sync_service import SyncService
+from ..services.syncs import SyncStore
 from ..services.transfers import TransferService
-from .routers import accounts, events, playlists, settings as settings_router, sync, transfers as transfers_router
+from .routers import (
+    accounts, events, playlists, settings as settings_router, sync,
+    syncs as syncs_router, transfers as transfers_router,
+)
 
 # Built React SPA (Vite output), served in production; in dev the vite server
 # proxies /api and /events to this app instead.
 _DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
 
-def create_app(settings=None, bus=None, sync_service=None, links=None, transfers=None) -> FastAPI:
+def create_app(settings=None, bus=None, sync_service=None, links=None, transfers=None, syncs=None) -> FastAPI:
     settings = settings or SettingsStore()
     bus = bus or EventBus()
-    sync_service = sync_service or SyncService(settings, bus)
+    syncs = syncs or SyncStore(dir=Path(settings.env_path).parent)
+    sync_service = sync_service or SyncService(settings, bus, syncs)
     links = links or LinkStore()
     transfers = transfers or TransferService(settings, bus, sync_service)
 
@@ -44,6 +49,7 @@ def create_app(settings=None, bus=None, sync_service=None, links=None, transfers
         load_dotenv()
         os.environ["OMNI_ENV_FILE"] = settings.env_path
         settings.apply_to_env()
+        syncs.seed_default(settings)  # migrate the single global config into a "Default" job once
         await sync_service.start()
         try:
             yield
@@ -54,12 +60,14 @@ def create_app(settings=None, bus=None, sync_service=None, links=None, transfers
     app.state.settings = settings
     app.state.bus = bus
     app.state.sync = sync_service
+    app.state.syncs = syncs
     app.state.links = links
     app.state.transfers = transfers
 
     app.include_router(accounts.router)
     app.include_router(settings_router.router)
     app.include_router(sync.router)
+    app.include_router(syncs_router.router)
     app.include_router(events.router)
     app.include_router(playlists.router)
     app.include_router(transfers_router.router)

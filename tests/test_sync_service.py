@@ -1,12 +1,21 @@
-"""SyncService serializes passes and records outcomes."""
+"""SyncService serializes passes and records outcomes (per named job)."""
 
 import asyncio
 
 from spotify_mirror.services.events import EventBus
 from spotify_mirror.services.settings import SettingsStore
+from spotify_mirror.services.syncs import SyncJob, SyncStore
 
 
-def test_run_now_coalesces(monkeypatch, tmp_path):
+def _svc(tmp_path, bus):
+    import spotify_mirror.services.sync_service as m
+
+    store = SyncStore(dir=tmp_path)
+    job = store.upsert(SyncJob(name="J"))
+    return m.SyncService(SettingsStore(dir=tmp_path), bus, store), job.id
+
+
+def test_run_job_coalesces(monkeypatch, tmp_path):
     calls = []
 
     async def scenario():
@@ -21,16 +30,16 @@ def test_run_now_coalesces(monkeypatch, tmp_path):
         monkeypatch.setattr(m, "_run_pass_async", fake_pass)
         bus = EventBus()
         bus.bind_loop(asyncio.get_running_loop())
-        svc = m.SyncService(SettingsStore(dir=tmp_path), bus)
-        await asyncio.gather(svc.run_now(False), svc.run_now(False))
-        assert svc.status()["last"] == {"ok": True, "per_target": []}
+        svc, jid = _svc(tmp_path, bus)
+        await asyncio.gather(svc.run_job(jid, False), svc.run_job(jid, False))
+        assert svc.status()["last"]["ok"] is True
         assert svc.status()["running"] is False
 
     asyncio.run(scenario())
-    assert calls == ["start", "end"]  # the overlapping second call was coalesced
+    assert calls == ["start", "end"]  # the overlapping duplicate trigger was coalesced
 
 
-def test_run_now_records_failure(monkeypatch, tmp_path):
+def test_run_job_records_failure(monkeypatch, tmp_path):
     async def scenario():
         import spotify_mirror.services.sync_service as m
 
@@ -40,8 +49,8 @@ def test_run_now_records_failure(monkeypatch, tmp_path):
         monkeypatch.setattr(m, "_run_pass_async", boom)
         bus = EventBus()
         bus.bind_loop(asyncio.get_running_loop())
-        svc = m.SyncService(SettingsStore(dir=tmp_path), bus)
-        await svc.run_now(True)
+        svc, jid = _svc(tmp_path, bus)
+        await svc.run_job(jid, True)
         assert svc.status()["last"]["ok"] is False
         assert svc.status()["running"] is False
 

@@ -3,6 +3,7 @@
 from fastapi.testclient import TestClient
 
 from spotify_mirror.services.settings import SettingsStore
+from spotify_mirror.services.syncs import SyncStore
 from spotify_mirror.web import create_app
 
 
@@ -91,6 +92,21 @@ def test_links_crud(tmp_path):
         assert len(client.get("/api/links").json()) == 1
         assert client.delete(f"/api/links/{lid}").json() == {"ok": True}
         assert client.get("/api/links").json() == []
+
+
+def test_syncs_crud_and_seed(tmp_path):
+    # The single global config is migrated into one "Default" job on first boot,
+    # then jobs are managed via CRUD.
+    store = SyncStore(dir=tmp_path)
+    with TestClient(create_app(settings=SettingsStore(dir=tmp_path), syncs=store)) as client:
+        assert [j["name"] for j in client.get("/api/syncs").json()] == ["Default"]
+        jid = client.post("/api/syncs", json={"name": "Workout", "mode": "oneway", "source": "apple"}).json()["id"]
+        assert jid
+        client.put(f"/api/syncs/{jid}", json={"enabled": False})
+        got = next(j for j in client.get("/api/syncs").json() if j["id"] == jid)
+        assert got["enabled"] is False and got["source"] == "apple"  # merge-update kept source
+        client.delete(f"/api/syncs/{jid}")
+        assert jid not in [j["id"] for j in client.get("/api/syncs").json()]
 
 
 def test_transfers_start_and_status(tmp_path, monkeypatch):

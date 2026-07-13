@@ -67,8 +67,12 @@ def test_run_exclusive_queues_behind_sync(monkeypatch, tmp_path):
         monkeypatch.setattr(m, "_run_pass_async", fake_pass)
         bus = EventBus()
         bus.bind_loop(asyncio.get_running_loop())
-        sync = SyncService(SettingsStore(dir=tmp_path), bus)
-        await asyncio.gather(sync.run_now(False), sync.run_exclusive(lambda: order.append("transfer")))
+        from spotify_mirror.services.syncs import SyncJob, SyncStore
+
+        store = SyncStore(dir=tmp_path)
+        job = store.upsert(SyncJob(name="J"))
+        sync = SyncService(SettingsStore(dir=tmp_path), bus, store)
+        await asyncio.gather(sync.run_job(job.id, False), sync.run_exclusive(lambda: order.append("transfer")))
 
     asyncio.run(scenario())
     assert order == ["sync-start", "sync-end", "transfer"]  # the transfer waited for the sync
