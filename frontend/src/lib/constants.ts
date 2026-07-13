@@ -11,18 +11,18 @@ interface StateStyle {
  * per the design spec's StatusPill map. Each pairs a mono glyph with the
  * word — color is never the only signal. */
 export const ACCOUNT_STATE_STYLES: Record<AccountState, StateStyle> = {
-  connected: { label: 'connected', glyph: '✓', badge: 'bg-success-soft text-success', text: 'text-success' },
-  expired: { label: 'expired — reconnect', glyph: '~', badge: 'bg-warning-soft text-warning', text: 'text-warning' },
-  error: { label: 'error', glyph: '!', badge: 'bg-danger-soft text-danger', text: 'text-danger' },
-  unconfigured: { label: 'not configured', glyph: '·', badge: 'bg-neutral-soft text-neutral', text: 'text-neutral' },
+  connected: { label: 'Connected', glyph: '✓', badge: 'bg-success-soft text-success', text: 'text-success' },
+  expired: { label: 'Expired — reconnect', glyph: '~', badge: 'bg-warning-soft text-warning', text: 'text-warning' },
+  error: { label: 'Error', glyph: '!', badge: 'bg-danger-soft text-danger', text: 'text-danger' },
+  unconfigured: { label: 'Not configured', glyph: '·', badge: 'bg-neutral-soft text-neutral', text: 'text-neutral' },
 }
 
 export const TRANSFER_STATUS_STYLES: Record<TransferStatus, StateStyle> = {
-  queued: { label: 'queued', glyph: '·', badge: 'bg-neutral-soft text-neutral', text: 'text-neutral' },
-  busy: { label: 'waiting for the sync engine…', glyph: '~', badge: 'bg-warning-soft text-warning', text: 'text-warning' },
-  running: { label: 'running…', glyph: '…', badge: 'bg-accent-soft text-accent', text: 'text-accent' },
-  done: { label: 'done', glyph: '✓', badge: 'bg-success-soft text-success', text: 'text-success' },
-  error: { label: 'error', glyph: '!', badge: 'bg-danger-soft text-danger', text: 'text-danger' },
+  queued: { label: 'Queued', glyph: '·', badge: 'bg-neutral-soft text-neutral', text: 'text-neutral' },
+  busy: { label: 'Waiting for the sync engine…', glyph: '~', badge: 'bg-warning-soft text-warning', text: 'text-warning' },
+  running: { label: 'Running…', glyph: '…', badge: 'bg-accent-soft text-accent', text: 'text-accent' },
+  done: { label: 'Done', glyph: '✓', badge: 'bg-success-soft text-success', text: 'text-success' },
+  error: { label: 'Error', glyph: '!', badge: 'bg-danger-soft text-danger', text: 'text-danger' },
 }
 
 interface ServiceStyle {
