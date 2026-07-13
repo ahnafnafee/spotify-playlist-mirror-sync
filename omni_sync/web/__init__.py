@@ -84,6 +84,12 @@ def create_app(settings=None, bus=None, sync_service=None, links=None, transfers
         # Serve the SPA shell for any non-API path (client-side routing).
         if full_path.startswith(("api/", "events", "oauth/")):
             return JSONResponse({"detail": "not found"}, status_code=404)
+        # Serve real files sitting at the dist root (favicons, etc.) before the SPA
+        # shell. The containment check blocks path traversal out of the dist dir.
+        if full_path:
+            candidate = (_DIST / full_path).resolve()
+            if candidate.is_file() and _DIST.resolve() in candidate.parents:
+                return FileResponse(str(candidate))
         index = _DIST / "index.html"
         if index.is_file():
             return FileResponse(str(index))

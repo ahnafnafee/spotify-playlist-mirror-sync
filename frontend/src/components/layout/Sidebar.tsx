@@ -14,10 +14,9 @@ import {
 } from 'react-icons/lu'
 import type { IconType } from 'react-icons'
 
+import omniMark from '@/assets/brand/omni-mark.png'
 import { useSidebarCollapsed } from '@/hooks/useSidebarCollapsed'
 import { cn } from '@/lib/cn'
-
-import { BrandMark } from '../ui/BrandMark'
 
 const NAV_ITEMS: Array<{ to: string; label: string; end: boolean; icon: IconType }> = [
   { to: '/', label: 'Dashboard', end: true, icon: LuLayoutDashboard },
@@ -177,12 +176,7 @@ export function Sidebar() {
 }
 
 function Logo() {
-  return (
-    <span
-      className="flex size-7 shrink-0 items-end justify-center rounded-control bg-accent pb-1.5 shadow-(--shadow-key)"
-      aria-hidden="true"
-    >
-      <BrandMark barClassName="bg-on-accent" />
-    </span>
-  )
+  // Orange mark on a transparent background — theme-agnostic, no light/dark
+  // swap needed.
+  return <img src={omniMark} alt="" className="size-7 shrink-0" />
 }
