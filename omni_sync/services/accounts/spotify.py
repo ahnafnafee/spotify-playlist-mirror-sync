@@ -26,9 +26,14 @@ class SpotifyConnector(Connector):
     def _oauth(self, redirect_uri):
         from spotipy.oauth2 import SpotifyOAuth
 
-        scope = "playlist-read-private"
-        if self._store.get("SYNC_MODE") == "nway":
-            scope += " playlist-modify-private playlist-modify-public"
+        # Request the full read+write set up front. Reads cover the user's own
+        # private and collaborative playlists (followed playlists stay unreadable —
+        # that's a Spotify dev-mode limit, not a scope gap). Modify is needed
+        # whenever Spotify is a write target (any N-way sync, or a one-way sync
+        # sourced from another provider); per-job modes make a connect-time "is it
+        # needed?" check unreliable, so grant it once rather than force re-auth later.
+        scope = ("playlist-read-private playlist-read-collaborative "
+                 "playlist-modify-private playlist-modify-public")
         return SpotifyOAuth(
             client_id=self._store.get("SPOTIFY_CLIENT_ID"),
             client_secret=self._store.get("SPOTIFY_CLIENT_SECRET"),
