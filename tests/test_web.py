@@ -38,6 +38,18 @@ def test_settings_falls_back_to_env(tmp_path, monkeypatch):
         assert client.get("/api/settings").json()["MAX_ADDS"] == "321"
 
 
+def test_spotify_redirect_uri_forces_loopback_ip(tmp_path):
+    # Spotify rejects `localhost` for http loopback redirects — the callback URI
+    # must be normalized to the explicit 127.0.0.1 IP no matter how the app is
+    # opened. begin_redirect() only builds a URL (no network), so this is offline.
+    store = SettingsStore(dir=tmp_path)
+    store.save({"SPOTIFY_CLIENT_ID": "cid", "SPOTIFY_CLIENT_SECRET": "sec"})
+    with TestClient(create_app(settings=store), base_url="http://localhost:8080") as client:
+        r = client.post("/api/accounts/spotify/connect")
+        assert r.status_code == 200
+        assert r.json()["redirect_uri"] == "http://127.0.0.1:8080/oauth/spotify/callback"
+
+
 def test_sync_run_queues(tmp_path, monkeypatch):
     import spotify_mirror.services.sync_service as m
 

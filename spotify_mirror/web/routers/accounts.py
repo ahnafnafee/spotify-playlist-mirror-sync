@@ -1,5 +1,6 @@
 """Account wizard endpoints — connect/inspect each service uniformly."""
 
+import re
 from dataclasses import asdict
 
 from fastapi import APIRouter, Body, Request
@@ -16,7 +17,12 @@ def _conn(request: Request, cid: str):
 
 
 def _redirect_uri(request: Request, cid: str) -> str:
-    return str(request.base_url).rstrip("/") + f"/oauth/{cid}/callback"
+    base = str(request.base_url).rstrip("/")
+    # Spotify (and increasingly others) reject `localhost` for http loopback
+    # OAuth redirects — the explicit 127.0.0.1 loopback IP is required over http.
+    # Force it here so the redirect works no matter how the app is opened.
+    base = re.sub(r"://localhost(?=[:/]|$)", "://127.0.0.1", base, count=1)
+    return base + f"/oauth/{cid}/callback"
 
 
 @router.get("/api/accounts")
