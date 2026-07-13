@@ -17,6 +17,7 @@ import type { Settings as SettingsMap } from '@/types'
 // Mirrors the backend's own defaults (spotify_mirror/config.py) so a fresh,
 // never-saved install still shows sensible values instead of blank fields.
 const DEFAULTS: SettingsMap = {
+  DISPLAY_NAME: '',
   SYNC_MODE: 'oneway',
   SYNC_INTERVAL: '15m',
   MAX_ADDS: '200',
@@ -106,6 +107,16 @@ export default function Settings() {
           }}
         >
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <SettingsGroup label="PROFILE">
+              <TextField
+                label="Display name"
+                help="Optional — used only for the dashboard's greeting."
+                placeholder="e.g. Maya"
+                value={form.DISPLAY_NAME ?? ''}
+                onChange={(e) => setField('DISPLAY_NAME', e.target.value)}
+              />
+            </SettingsGroup>
+
             <SettingsGroup label="SYNC BEHAVIOR">
               <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                 <RadioCard

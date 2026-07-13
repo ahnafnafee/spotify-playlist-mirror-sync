@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { LuMusic2 } from 'react-icons/lu'
 
 import type { ProviderPlaylistsEntry } from '@/hooks/useProviderPlaylists'
 import { cn } from '@/lib/cn'
@@ -27,9 +28,7 @@ function CoverArt({ playlist }: { playlist: ProviderPlaylist }) {
   }
   return (
     <span className="flex size-9 shrink-0 items-center justify-center rounded-chip border border-border bg-surface-2" aria-hidden="true">
-      <svg viewBox="0 0 20 20" fill="currentColor" className="size-4 text-text-3">
-        <path d="M7.5 3.2a.75.75 0 0 1 .87-.74l7.5 1.25a.75.75 0 0 1 .63.74v9.3a2.6 2.6 0 1 1-1.5-2.36V5.9l-6 -1V13a2.6 2.6 0 1 1-1.5-2.36V3.2Z" />
-      </svg>
+      <LuMusic2 className="size-4 text-text-3" aria-hidden="true" />
     </span>
   )
 }

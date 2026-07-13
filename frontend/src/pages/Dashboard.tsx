@@ -1,54 +1,39 @@
-import { useState } from 'react'
-
-import { api, errorMessage } from '@/api'
+import { Hero } from '@/components/dashboard/Hero'
 import { LiveFeed } from '@/components/dashboard/LiveFeed'
-import { RunControls } from '@/components/dashboard/RunControls'
-import { SyncStatusSummary } from '@/components/dashboard/SyncStatusSummary'
+import { NeedsALook } from '@/components/dashboard/NeedsALook'
+import { SyncControlCard } from '@/components/dashboard/SyncControlCard'
+import { YourServices } from '@/components/dashboard/YourServices'
 import { Card } from '@/components/ui/Card'
+import { useAccounts } from '@/hooks/useAccounts'
+import { useSettings } from '@/hooks/useSettings'
 import { useSyncStatus } from '@/hooks/useSyncStatus'
 
+/** The hero's headline stands in for the page's h1 (see Hero.tsx) — a
+ * separate "Dashboard" title above it would just repeat what the sentence
+ * already says. */
 export default function Dashboard() {
+  const { accounts } = useAccounts()
   const { status, error, refresh } = useSyncStatus()
-  const [scheduleBusy, setScheduleBusy] = useState(false)
-  const [scheduleError, setScheduleError] = useState<string | null>(null)
-
-  async function toggleSchedule() {
-    if (!status) return
-    setScheduleBusy(true)
-    setScheduleError(null)
-    try {
-      await api.setSchedule({ action: status.scheduled ? 'pause' : 'resume' })
-      await refresh()
-    } catch (err) {
-      setScheduleError(errorMessage(err))
-    } finally {
-      setScheduleBusy(false)
-    }
-  }
+  const { settings } = useSettings()
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-xl font-bold tracking-tight text-text sm:text-[22px]">Dashboard</h1>
-        <p className="mt-1 text-sm text-text-3">Watch your playlists sync in real time, or kick off a pass yourself.</p>
+    <div className="flex flex-col gap-7">
+      {error && <p className="rounded-control bg-danger-soft px-3 py-2 text-sm text-danger">Could not load sync status: {error}</p>}
+
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-stretch lg:gap-6">
+        <Hero accounts={accounts} status={status} displayName={settings?.DISPLAY_NAME} />
+        <SyncControlCard status={status} onQueued={() => void refresh()} />
       </div>
 
-      <Card className="flex flex-col gap-6 p-4 sm:p-6">
-        <SyncStatusSummary
-          status={status}
-          error={error}
-          onToggleSchedule={() => void toggleSchedule()}
-          scheduleBusy={scheduleBusy}
-        />
-        {scheduleError && <p className="text-sm text-danger">{scheduleError}</p>}
-        <div className="border-t border-border pt-4">
-          <RunControls disabled={!status || status.running} onQueued={() => void refresh()} />
-        </div>
-      </Card>
+      <NeedsALook accounts={accounts} status={status} />
 
-      <Card className="p-4 sm:p-6">
-        <LiveFeed />
-      </Card>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.65fr_1fr] lg:items-start">
+        <Card className="flex flex-col gap-3 overflow-hidden p-4 sm:p-5">
+          <h2 className="text-[15px] font-extrabold text-text">Recent activity</h2>
+          <LiveFeed />
+        </Card>
+        <YourServices accounts={accounts} status={status} />
+      </div>
     </div>
   )
 }

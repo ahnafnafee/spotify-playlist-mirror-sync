@@ -87,6 +87,9 @@ export interface SyncStatus {
   scheduled: boolean
   interval_s: number
   last: PassSummary | null
+  /** Epoch seconds of the next scheduled pass, or `null` when auto-sync is
+   * paused (or nothing has ever been scheduled). */
+  next_run_at?: number | null
 }
 
 export interface RunResponse {

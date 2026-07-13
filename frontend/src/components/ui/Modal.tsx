@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { LuX } from 'react-icons/lu'
 
 import { cn } from '@/lib/cn'
 
@@ -102,7 +103,7 @@ export function Modal({ open, onClose, title, description, children, footer, wid
             aria-label="Close"
             className="inline-flex size-11 shrink-0 items-center justify-center rounded-control text-text-3 hover:bg-surface-2 hover:text-text-2 sm:size-7"
           >
-            <CloseIcon />
+            <LuX className="size-5" aria-hidden="true" />
           </button>
         </div>
 
@@ -118,13 +119,5 @@ export function Modal({ open, onClose, title, description, children, footer, wid
       </div>
     </div>,
     document.body,
-  )
-}
-
-function CloseIcon() {
-  return (
-    <svg viewBox="0 0 20 20" fill="currentColor" className="size-5" aria-hidden="true">
-      <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
-    </svg>
   )
 }
