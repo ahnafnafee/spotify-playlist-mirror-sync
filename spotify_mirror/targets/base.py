@@ -1,8 +1,12 @@
-"""The mirror target contract + the shared per-playlist mirror algorithm.
+"""The mirror target contract + the shared reconciliation algorithms.
 
 A new service (Tidal, Deezer, ...) is added by subclassing `MirrorTarget` and
-implementing ~8 small methods; the reconciliation logic — diff, resolve,
-ordering, safety rails, logging, stats — lives once here in `mirror_pair`.
+implementing ~8 small methods (carry ISRC in `playlist_tracks` if the API has
+it). Both engines are provider-agnostic and unchanged by a new target:
+`mirror_pair` (one-way, Spotify -> target) and `reconcile` (N-way bidirectional
+across all peers, diffing each against a stored canonical snapshot). Diff,
+resolve, cross-provider identity, ordering, safety rails, logging, and stats
+all live here once.
 """
 
 import time
@@ -12,7 +16,13 @@ from ..logs import (
     fmt_counts, fmt_secs, log_add, log_hold, log_miss, log_note, log_remove,
     log_section, log_summary, log_warn, paint,
 )
-from ..matching import compute_diff, protect_removals
+from ..matching import compute_diff, protect_removals, track_key
+
+# A provider reading fewer than this fraction of the known baseline is treated
+# as a broken read: its removals are ignored so one bad fetch can't cascade a
+# mass-delete across every provider. ponytail: a blunt ratio, not per-provider
+# count history — tighten if legitimate drift ever trips it.
+COLLAPSE_FRACTION = 0.4
 
 
 class TargetAuthError(RuntimeError):
@@ -53,6 +63,12 @@ class MirrorTarget:
 
     def prefetch(self, sp_tracks, cache):
         """Optional batch work before resolving (Apple: bulk ISRC lookup)."""
+
+    def native_isrc_map(self, cache):
+        """{track_id: ISRC} this provider can supply out-of-band (e.g. from its
+        own resolve cache) for reads that omit ISRC. Default: none. Overriding
+        it lets a new provider unify on ISRC with no reconciler changes."""
+        return {}
 
     def expected_ids(self, sp_tracks, links, cache):
         """{spotify_id: set(target_ids)} the track is known to correspond to."""
@@ -161,3 +177,211 @@ def mirror_pair(target, sp_tracks, sp_playlist, tgt_playlist, cache, songs, *, e
         "missing": len(not_found), "held": len(held), "deferred": deferred,
         "target_count": len(tgt_tracks) + len(additions) - len(removals),
     }
+
+
+# --------------------------------------------------------------------------- #
+# N-way bidirectional reconcile (SYNC_MODE=nway). Diffs every provider against
+# a stored canonical snapshot so a change on ANY provider propagates to all.
+# --------------------------------------------------------------------------- #
+
+def _normalize(track, source):
+    """Common cross-provider shape, keeping the raw provider dict for removal
+    (which needs the relationship_id / playlistItem id / uri)."""
+    artists = track.get("artists") or ([track["artist"]] if track.get("artist") else [""])
+    return {
+        "name": track.get("name", ""),
+        "artists": artists,
+        "artist": track.get("artist") or ", ".join(a for a in artists if a),
+        "duration_ms": track.get("duration_ms"),
+        "isrc": track.get("isrc"),
+        "added_at": track.get("added_at") or "",
+        "_raw": track,
+        "_source": source,
+    }
+
+
+def _canonicalize(target, tracks, songs, cache, key2isrc):
+    """{canonical_id: normalized track} for one provider's current tracks.
+
+    Canonical precedence: ISRC (direct / provider-native map / same-playlist
+    Spotify track_key) -> ISRC via the reverse link to Spotify -> the Spotify id
+    -> track_key. Getting the same song onto ONE canonical id across providers
+    is the crux, so ISRC is pulled from wherever each provider exposes it:
+    Spotify carries it inline; Apple's ISRC resolve cache maps catalog_id ->
+    ISRC; and key2isrc (built from this playlist's Spotify tracks) rescues any
+    remaining track whose fuzzy key already exists on Spotify — without it, an
+    ISRC-less YT copy of a Spotify song splits into a duplicate."""
+    rev = ({} if target.source == "spotify"
+           else archive.get_reverse_links(songs, target.source, [target.track_id(t) for t in tracks]))
+    sp_isrc = archive.get_isrcs(songs, "spotify", list(rev.values())) if rev else {}
+    id2isrc = target.native_isrc_map(cache)  # provider-supplied track_id -> ISRC (Apple, future providers)
+    out = {}
+    for t in tracks:
+        norm = _normalize(t, target.source)
+        isrc = (norm["isrc"] or id2isrc.get(target.track_id(t))
+                or key2isrc.get(track_key(norm["name"], norm["artist"])))
+        if isrc:
+            cid = f"i:{isrc}"
+        else:
+            sp_id = rev.get(target.track_id(t))
+            if sp_id:
+                cid = f"i:{sp_isrc[sp_id]}" if sp_id in sp_isrc else f"s:{sp_id}"
+            else:
+                cid = f"k:{track_key(norm['name'], norm['artist'])}"
+        out.setdefault(cid, norm)  # first occurrence wins (dedupe within a provider)
+    return out
+
+
+def _merge(prev, cur, collapsed):
+    """Pure delta merge over PER-PROVIDER state. prev, cur: {source:
+    set(canonical_id)} — each provider's membership after the last clean pass
+    and now. collapsed: sources whose read is untrusted (skipped this pass).
+    Returns (desired, {source: (add_ids, remove_ids)}).
+
+    A canonical is REMOVED only when it leaves a provider that actually had it
+    (prev[src] - cur[src]) — so a track that merely can't be matched on a
+    service (never in that service's prev) is never mistaken for a deletion.
+    add-wins on conflict; desired is the union of prior memberships plus new
+    additions minus real removals."""
+    adds, removes = set(), set()
+    for src, ids in cur.items():
+        if src in collapsed:
+            continue  # untrusted read contributes neither adds nor removes
+        adds |= ids - prev.get(src, set())
+        removes |= prev.get(src, set()) - ids
+    removes -= adds
+    union_prev = set().union(*prev.values()) if prev else set()
+    desired = (union_prev | adds) - removes
+    plan = {src: (desired - ids, ids - desired) for src, ids in cur.items()}
+    return desired, plan
+
+
+def reconcile(peers, name, playlists, caches, songs, *, execute, max_removals, max_adds):
+    """Reconcile one logical playlist across N provider peers, bidirectionally.
+
+    playlists: {source: playlist dict}; caches: {source: resolution cache}.
+    Returns a stats dict; `clean` is True when every side applied with no guard
+    tripped (only then is the canonical snapshot advanced)."""
+    key = name.casefold()
+    started = time.monotonic()
+    prev = {p.source: archive.get_playlist_state(songs, key, p.source) for p in peers}
+
+    canon = {}       # source -> {canonical_id: normalized track}
+    present = {}     # source -> set of ALL current target ids (not canonical-deduped)
+    key2isrc = {}    # track_key -> ISRC, seeded by any ISRC-bearing provider (peers are ISRC-rich first)
+    for p in peers:
+        raw = p.playlist_tracks(playlists[p.source])
+        archive.upsert_many(songs, p.source, raw)
+        present[p.source] = {p.track_id(t) for t in raw if p.track_id(t)}
+        canon[p.source] = _canonicalize(p, raw, songs, caches[p.source], key2isrc)
+        for cid, norm in canon[p.source].items():
+            if cid.startswith("i:"):  # any provider that resolved an ISRC anchors the rest
+                key2isrc.setdefault(track_key(norm["name"], norm["artist"]), cid[2:])
+    cur = {src: set(m) for src, m in canon.items()}
+
+    repr_ = {}  # canonical_id -> representative track (peers are ordered spotify-first for ISRC-rich reprs)
+    for p in peers:
+        for cid, norm in canon[p.source].items():
+            repr_.setdefault(cid, norm)
+
+    collapsed = set()
+    for p in peers:
+        base = prev[p.source]
+        if base and (not cur[p.source] or len(cur[p.source]) < COLLAPSE_FRACTION * len(base)):
+            collapsed.add(p.source)
+            log_warn(f"{name}: {p.name} read {len(cur[p.source])} vs baseline {len(base)} — "
+                     "ignoring its removals this pass", tag=p.tag)
+
+    desired, plan = _merge(prev, cur, collapsed)
+    log_section(name, " / ".join(f"{p.name} {len(cur[p.source])}" for p in peers), tag="sync")
+
+    stats = {"clean": execute and not collapsed, "added": 0, "removed": 0, "missing": 0, "held": 0, "deferred": 0}
+    new_links = {p.source: {} for p in peers}
+    new_state = {}   # source -> canonical membership to persist (only on a clean pass)
+    for p in peers:
+        if p.source in collapsed:
+            continue  # untrusted read: don't write to it this pass (guards adds too, not just removes)
+        add_ids, remove_ids = plan[p.source]
+        cache = caches[p.source]
+        seen = set(present[p.source])  # every id already on the provider (+ ids queued this pass)
+
+        # ADD: resolve each missing canonical id to this provider's track id.
+        add_norms = [repr_[cid] for cid in add_ids]
+        try:
+            p.prefetch(add_norms, cache)
+        except Exception as e:
+            log_warn(f"{p.name} prefetch failed: {e!r}", tag=p.tag)
+        additions, not_found = [], []
+        for norm in sorted(add_norms, key=lambda n: n["added_at"]):
+            try:
+                tid, method = p.resolve(norm, cache)
+            except TargetAuthError:
+                raise
+            except Exception as e:
+                log_warn(f"resolve failed on {p.name}: {norm['name']}: {e!r}", tag=p.tag)
+                tid, method = None, None
+            if not tid:
+                not_found.append(norm)
+                continue
+            if tid in seen:
+                continue  # already on this provider (a different canonical resolved to the same track)
+            seen.add(tid)
+            additions.append((tid, method or "search", norm))
+            if norm["_source"] == "spotify" and norm["_raw"].get("id"):
+                new_links[p.source][norm["_raw"]["id"]] = tid
+
+        deferred = 0
+        if len(additions) > max_adds:
+            deferred = len(additions) - max_adds
+            log_warn(f"{p.name}/{name}: {len(additions)} additions exceed --max-adds={max_adds}; "
+                     f"deferring {deferred}", tag=p.tag)
+            additions, stats["clean"] = additions[:max_adds], False
+
+        # REMOVE: canonical ids that left the set, guarded by protect_removals + cap.
+        remove_pairs = [(cid, canon[p.source][cid]) for cid in remove_ids]
+        safe, held = protect_removals([n for _, n in remove_pairs], not_found)
+        safe_ids = {id(n) for n in safe}
+        removed_cids = {cid for cid, n in remove_pairs if id(n) in safe_ids}
+        if len(safe) > max_removals:
+            log_warn(f"{p.name}/{name}: {len(safe)} removals exceed --max-removals={max_removals}; "
+                     "skipping removals this pass", tag=p.tag)
+            safe, removed_cids, stats["clean"] = [], set(), False
+
+        for tid, method, norm in additions:
+            log_add(f"{p.name}: {norm['name']} - {norm['artist']}  {paint('(' + method + ')', 'grey')}",
+                    dry=not execute, tag=p.tag)
+        for norm in safe:
+            log_remove(f"{p.name}: {norm['name']} - {norm['artist']}", dry=not execute, tag=p.tag)
+        for norm in held:
+            log_hold(f"{p.name}: kept (no re-add match): {norm['name']} - {norm['artist']}", tag=p.tag)
+        for norm in not_found:
+            log_miss(f"not on {p.name}: {norm['name']} - {', '.join(norm['artists'])}", tag=p.tag)
+
+        if execute:
+            if additions:
+                p.add(playlists[p.source], [tid for tid, _, _ in additions])
+            for norm in safe:
+                p.remove(playlists[p.source], norm["_raw"])
+
+        # This provider's membership after the pass = what it has now, minus what
+        # we removed. Added tracks re-materialize (under their own canonical) on
+        # the next read — recording only what's actually present avoids a stale
+        # snapshot ever triggering a phantom removal.
+        new_state[p.source] = cur[p.source] - removed_cids
+
+        stats["added"] += len(additions)
+        stats["removed"] += len(safe)
+        stats["missing"] += len(not_found)
+        stats["held"] += len(held)
+        stats["deferred"] += deferred
+
+    if execute:
+        for p in peers:
+            archive.set_links(songs, p.source, new_links[p.source])
+        if stats["clean"]:
+            for src, ids in new_state.items():
+                archive.set_playlist_state(songs, key, src, ids)
+
+    counts = fmt_counts(stats["added"], stats["removed"], stats["missing"], stats["held"], stats["deferred"])
+    log_summary(f"{name}: {counts}  {paint('in ' + fmt_secs(time.monotonic() - started), 'grey')}", tag="sync")
+    return stats

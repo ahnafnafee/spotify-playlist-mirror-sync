@@ -5,16 +5,21 @@
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Docker ready](https://img.shields.io/badge/docker-ready-2496ED)
 
-**Always-on, one-way playlist sync: Spotify → Apple Music, YouTube Music, and
-local audio files (Jellyfin-ready).** Set it up once, and every playlist you
-curate on Spotify stays mirrored everywhere — tracks added on Spotify appear
-on the other services in date-added order, tracks you remove disappear, and an
-optional download mirror keeps offline copies organized for your media server.
+**Always-on playlist sync: Spotify → Apple Music, YouTube Music, and local
+audio files (Jellyfin-ready) — with an optional bidirectional mode.** Set it up
+once, and every playlist you curate on Spotify stays mirrored everywhere —
+tracks added on Spotify appear on the other services in date-added order, tracks
+you remove disappear, and an optional download mirror keeps offline copies
+organized for your media server. Flip on [N-way mode](#bidirectional-n-way-sync)
+and a change made on *any* provider propagates to the others.
 
 ## Features
 
 - 🔁 **True mirroring** — adds *and* removals, not append-only. Spotify is the
   source of truth; Apple Music and YouTube Music follow.
+- ⇄ **Optional N-way sync** — bidirectional mode where a track added or removed
+  on Spotify, Apple, *or* YouTube Music propagates to all the others, echo-free,
+  behind the same removal guards.
 - 🎯 **ISRC-first matching** — exact recording identity where available, with
   Unicode-aware fuzzy title/artist/duration fallbacks (feat-credit drift,
   "- 2015 Remaster" suffixes, non-Latin scripts all handled).
@@ -44,11 +49,14 @@ Every pass, for each selected playlist name that exists on Spotify:
 
 1. Snapshot the Spotify playlist (tracks, ISRCs, added-at dates).
 2. Reconcile the same-named Apple Music playlist (via the web player's
-   amp-api) and YouTube Music playlist (via
-   [ytmusicapi](https://github.com/sigma67/ytmusicapi)) — concurrently.
+   amp-api) and YouTube Music playlist (via the official
+   [YouTube Data API v3](https://developers.google.com/youtube/v3)) —
+   concurrently.
 3. Missing tracks are resolved (cached links → ISRC → scored search) and
    appended oldest-first; tracks gone from Spotify are removed behind guards.
 4. Optionally, spotDL syncs a local audio folder per playlist.
+
+For the opt-in bidirectional variant, see [N-way sync](#bidirectional-n-way-sync).
 
 > This project previously synced the other direction (Apple → Spotify). That
 > mode is gone; the old `synced_isrcs.json` / `apple_spotify_uri_cache.json`
@@ -194,7 +202,8 @@ cp .cache data/spotify_token_cache          # PowerShell: copy .cache data\spoti
 SPOTIFY_TOKEN_CACHE=data/spotify_token_cache uv run main.py
 ```
 
-For the YouTube Music mirror, also put its auth at `data/ytmusic_browser.json`.
+For the YouTube Music mirror, also put its auth at `data/ytmusic_oauth.json` and
+set the OAuth env vars — see [YouTube Music mirror](#youtube-music-mirror-optional).
 
 **Downloads**: set `DOWNLOAD_DIR` in `.env` to your host music dir (e.g.
 `F:\Torrent\Music`) — compose bind-mounts it to `/music` in the container
@@ -222,26 +231,98 @@ mirrors racing each other can briefly duplicate adds.
 
 ## YouTube Music mirror (optional)
 
-The same mirroring (same-name pairs, adds oldest-first so newest lands last,
-guarded removals, auto-create) also runs against YouTube Music whenever an
-auth file is present — no auth file, and the step just logs a skip line.
+The same mirroring (same-name pairs, adds oldest-first, guarded removals,
+auto-create) runs against YouTube Music whenever its OAuth token is present — no
+token, and the step just logs a skip line. It talks to the **official
+[YouTube Data API v3](https://developers.google.com/youtube/v3)**, whose OAuth
+refresh token is durable and survives restarts unattended.
 
 One-time setup:
 
-```bash
-uv run ytmusicapi browser --file ytmusic_browser.json
-```
+1. In the [Google Cloud console](https://console.cloud.google.com), create a
+   project, enable the **YouTube Data API v3**, then create an OAuth client of
+   type **TVs and Limited Input devices**. Note its **client ID** and **secret**.
+2. On the **OAuth consent screen**, set **Publishing status → In production** and
+   add yourself as a test user. ⚠️ If you leave it in "Testing", Google expires
+   the refresh token after **7 days** — the exact trap OAuth is meant to avoid.
+3. Run the device flow and follow the printed code/URL (`uvx` runs it in a
+   throwaway env, immune to a stale project venv):
 
-Follow its prompt: open <https://music.youtube.com> logged in, DevTools →
-Network, click a `/browse` POST request, copy the **request headers** and paste
-them (finish with Ctrl-Z + Enter on Windows). Same idea as the Apple tokens.
+   ```bash
+   uvx ytmusicapi oauth --file data/ytmusic_oauth.json \
+     --client-id "<CLIENT_ID>" --client-secret "<CLIENT_SECRET>"
+   ```
+
+4. Put `YTMUSIC_OAUTH_CLIENT_ID` and `YTMUSIC_OAUTH_CLIENT_SECRET` in `.env`, and
+   point `YTMUSIC_AUTH_FILE` at the token file (default `ytmusic_oauth.json`).
+
+**Why the Data API, not ytmusicapi's internal endpoints?** `ytmusicapi`'s
+private `youtubei` API rejects self-made OAuth clients outright (`400 —
+INVALID_ARGUMENT`, a [known, unfixed issue](https://github.com/sigma67/ytmusicapi/issues/813)),
+and its browser-cookie auth is a static snapshot Google invalidates within ~a
+day. The public Data API accepts the OAuth token, shares YouTube's
+playlist/video namespace (writes show up in the YouTube Music app), and refreshes
+durably. `ytmusicapi` is still used, but only to refresh the OAuth token.
 
 Notes:
 
-- YouTube Music has no ISRC, so matching is title/artist/duration based —
-  slightly fuzzier than the Apple side, same safety rails.
-- Only playlists owned by your YT account are edited; others are skipped.
-- For Docker, put the auth file at `data/ytmusic_browser.json`.
+- **Quota**: the Data API allows **10,000 units/day** (a search costs 100, an
+  add/remove 50, a read 1). Steady-state upkeep is cheap; a big first-time
+  backlog of *new* tracks can hit the cap and resume the next day.
+- **Fidelity**: YouTube has no ISRC, so matching is title/artist/duration and
+  resolution prefers `- Topic` art-tracks so tracks land as native songs. When
+  no art-track surfaces, a music video is used instead.
+- Only playlists owned by your account are edited; others are skipped.
+- For Docker, put the token file at `data/ytmusic_oauth.json` (or whatever
+  `YTMUSIC_AUTH_FILE` names).
+
+## Bidirectional (N-way) sync
+
+By default Spotify is the source of truth and edits flow one way. In **N-way
+mode** every provider is a peer: add or remove a track on Spotify, Apple Music,
+*or* YouTube Music and the change propagates to the others.
+
+Enable it in `.env`:
+
+```bash
+SYNC_MODE=nway
+PROVIDERS=spotify,apple,ytmusic   # which peers participate
+```
+
+**One-time cost — Spotify re-auth.** N-way needs to *write* to Spotify, which
+adds the `playlist-modify-*` scopes. Changing the scope invalidates the cached
+token, so you re-authorize once: delete the token cache
+(`data/spotify_token_cache`) and run a pass so the OAuth flow re-runs (seed it
+the same way as the [initial Docker token](#always-running-docker) — the
+container can't open a browser). Until you do, N-way writes to Spotify fail
+closed with a clear message.
+
+**Always dry-run first.** Run without `--execute` and read the plan — it prints
+every proposed add/remove on every provider before anything is written.
+
+### How it stays safe
+
+Bidirectional sync is impossible statelessly (you can't tell "added on A" from
+"removed on B" without memory), so each logical playlist's canonical membership
+is snapshotted after every clean pass. Each pass diffs every provider against
+that snapshot, unions the changes, and reconciles everyone to the result:
+
+- **Echo-free** — a propagated add becomes part of the snapshot, so it's never
+  re-seen as a new appearance and bounced back.
+- **Add-wins** on conflict — losing a song is worse than keeping an extra one.
+- **Read-collapse guard** — if a provider suddenly reads far fewer tracks than
+  the known baseline (a transient API hiccup), it's skipped that pass so one bad
+  read can't cascade a mass-delete.
+- **The same rails as one-way** — per-pass `MAX_ADDS` / `MAX_REMOVALS` caps and
+  net-loss (`protect_removals`) hold on every write side.
+
+### Cross-provider identity caveats
+
+Matching uses ISRC where it exists (Spotify + Apple) and falls back to
+title/artist/duration for YouTube (no ISRC). The fuzzy YouTube leg can
+occasionally **duplicate** a track it fails to recognize as already-present, but
+the guards mean it will **never wrongly delete** one. Big divergences converge
+over several passes (bounded by the Data API quota).
 
 ## Local download mirror (optional)
 

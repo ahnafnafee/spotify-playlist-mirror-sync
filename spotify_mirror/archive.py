@@ -51,6 +51,19 @@ CREATE TABLE IF NOT EXISTS sync_state (
     PRIMARY KEY (pair, target)
 )
 """,
+    # N-way sync: the canonical membership of a logical playlist ON EACH PROVIDER
+    # after the last clean pass. Per-provider (not one shared set) is essential:
+    # a track absent from a provider's own prior membership is never a removal
+    # there, so a track that simply can't be matched on that service is not
+    # mistaken for a user deletion. See targets/base.py.
+    """
+CREATE TABLE IF NOT EXISTS playlist_state (
+    playlist     TEXT NOT NULL,
+    source       TEXT NOT NULL,
+    canonical_id TEXT NOT NULL,
+    PRIMARY KEY (playlist, source, canonical_id)
+)
+""",
 ]
 
 UPSERT = """
@@ -71,6 +84,11 @@ def connect(path):
     # check_same_thread=False: the Apple and YT mirrors run on separate threads,
     # each with its own use of a connection; the timeout rides out any lock.
     conn = sqlite3.connect(path, timeout=30, check_same_thread=False)
+    # Migrate a pre-per-provider playlist_state (no `source` column). It's
+    # regenerable snapshot state, so drop it and let the schema recreate it.
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(playlist_state)").fetchall()]
+    if cols and "source" not in cols:
+        conn.execute("DROP TABLE playlist_state")
     for schema in SCHEMAS:
         conn.execute(schema)
     conn.commit()
@@ -133,4 +151,45 @@ def set_state(conn, pair, target, snapshot_id, target_count):
         "INSERT OR REPLACE INTO sync_state VALUES (?, ?, ?, ?, ?)",
         (pair, target, snapshot_id, target_count, _now()),
     )
+    conn.commit()
+
+
+def _in_chunks(conn, sql, prefix, ids):
+    out = {}
+    ids = [i for i in ids if i]
+    for i in range(0, len(ids), 500):
+        chunk = ids[i : i + 500]
+        marks = ",".join("?" * len(chunk))
+        rows = conn.execute(sql.format(marks=marks), [*prefix, *chunk])
+        out.update(dict(rows.fetchall()))
+    return out
+
+
+def get_reverse_links(conn, target, target_ids):
+    """{target_id: spotify_id} — the inverse of get_links, so a non-Spotify
+    track can be traced back to its canonical Spotify identity."""
+    return _in_chunks(
+        conn, "SELECT target_id, spotify_id FROM links WHERE target = ? AND target_id IN ({marks})",
+        [target], target_ids)
+
+
+def get_isrcs(conn, source, ids):
+    """{id: isrc} from the songs archive for a source (only rows that have one)."""
+    got = _in_chunks(
+        conn, "SELECT id, isrc FROM songs WHERE source = ? AND isrc IS NOT NULL AND id IN ({marks})",
+        [source], ids)
+    return {k: v for k, v in got.items() if v}
+
+
+def get_playlist_state(conn, playlist, source):
+    rows = conn.execute("SELECT canonical_id FROM playlist_state WHERE playlist = ? AND source = ?",
+                        (playlist, source))
+    return {r[0] for r in rows.fetchall()}
+
+
+def set_playlist_state(conn, playlist, source, canonical_ids):
+    """Replace one provider's stored membership (only after a clean pass)."""
+    conn.execute("DELETE FROM playlist_state WHERE playlist = ? AND source = ?", (playlist, source))
+    conn.executemany("INSERT OR IGNORE INTO playlist_state VALUES (?, ?, ?)",
+                     [(playlist, source, cid) for cid in canonical_ids])
     conn.commit()

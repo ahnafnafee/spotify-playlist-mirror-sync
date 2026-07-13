@@ -11,8 +11,9 @@ services:
       SONG_CACHE_FILE: /data/song_cache.db
       SPOTIFY_TRACKS_CACHE: /data/spotify_tracks_cache.json
       DOWNLOAD_STATE_FILE: /data/download_state.json
-      YTMUSIC_AUTH_FILE: /data/ytmusic_browser.json
+      YTMUSIC_AUTH_FILE: /data/ytmusic_oauth.json   # YouTube Data API v3 OAuth refresh token
       YTMUSIC_CACHE_FILE: /data/ytmusic_resolve_cache.json
+      SPOTIFY_CACHE_FILE: /data/spotify_resolve_cache.json   # N-way Spotify search cache
       SPOTIFY_OAUTH_OPEN_BROWSER: "0"
       # Container path; the host music dir (DOWNLOAD_DIR in .env, e.g.
       # F:\Torrent\Music) is bind-mounted to it below. This overrides the

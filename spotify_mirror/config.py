@@ -17,6 +17,9 @@ DEFAULT_CACHE_FILE = "apple_resolve_cache.json"
 DEFAULT_SONG_CACHE_FILE = "song_cache.db"
 DEFAULT_STOREFRONT = "us"
 DEFAULT_SPOTIFY_REDIRECT_URI = "http://127.0.0.1:8888/callback"
+DEFAULT_SYNC_MODE = "oneway"                          # oneway (Spotify->targets) | nway (bidirectional)
+DEFAULT_PROVIDERS = "spotify,apple,ytmusic"           # peers participating in N-way sync
+DEFAULT_SPOTIFY_CACHE_FILE = "spotify_resolve_cache.json"
 
 
 def required_env(var_name):
@@ -52,6 +55,9 @@ class Options:
     cache_file: str
     song_cache_file: str
     refresh_local: bool = False
+    sync_mode: str = DEFAULT_SYNC_MODE
+    providers: str = DEFAULT_PROVIDERS
+    spotify_cache_file: str = DEFAULT_SPOTIFY_CACHE_FILE
 
 
 def parse_args(argv=None):
@@ -80,6 +86,12 @@ def parse_args(argv=None):
                    help=f"ISRC/search resolution cache (default: {DEFAULT_CACHE_FILE}).")
     p.add_argument("--song-cache-file", default=os.getenv("SONG_CACHE_FILE", DEFAULT_SONG_CACHE_FILE),
                    help=f"Ever-growing SQLite song archive (default: {DEFAULT_SONG_CACHE_FILE}).")
+    p.add_argument("--sync-mode", default=os.getenv("SYNC_MODE", DEFAULT_SYNC_MODE), choices=("oneway", "nway"),
+                   help=f"oneway = Spotify->targets (default); nway = bidirectional across all providers.")
+    p.add_argument("--providers", default=os.getenv("PROVIDERS", DEFAULT_PROVIDERS),
+                   help=f"N-way peers, comma-separated (default: {DEFAULT_PROVIDERS}).")
+    p.add_argument("--spotify-cache-file", default=os.getenv("SPOTIFY_CACHE_FILE", DEFAULT_SPOTIFY_CACHE_FILE),
+                   help=f"Spotify resolution cache for N-way writes (default: {DEFAULT_SPOTIFY_CACHE_FILE}).")
     a = p.parse_args(argv)
 
     if a.max_removals < 0:
@@ -90,5 +102,6 @@ def parse_args(argv=None):
         execute=a.execute, loop=a.loop, interval_s=parse_interval(a.interval), playlists=a.playlists,
         max_removals=a.max_removals, max_adds=a.max_adds, download_dir=a.download_dir,
         storefront=a.storefront, cache_file=a.cache_file, song_cache_file=a.song_cache_file,
-        refresh_local=a.refresh_local,
+        refresh_local=a.refresh_local, sync_mode=a.sync_mode, providers=a.providers,
+        spotify_cache_file=a.spotify_cache_file,
     )
