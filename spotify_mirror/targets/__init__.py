@@ -15,7 +15,7 @@ from .spotify_target import SpotifyTarget
 from . import ytmusic
 
 __all__ = ["AppleMusicTarget", "SpotifyTarget", "MirrorTarget", "TargetAuthError",
-           "mirror_pair", "reconcile", "build_targets", "build_peers"]
+           "mirror_pair", "reconcile", "build_targets", "build_peers", "build_one"]
 
 
 def _apple(opts):
@@ -45,6 +45,13 @@ def build_targets(opts):
     """One-way targets available this run (Spotify is the source, not a target)."""
     return [t for src in _SOURCE_ORDER if src != "spotify"
             for t in (_REGISTRY[src](opts, None),) if t]
+
+
+def build_one(provider_id, opts, sp=None):
+    """Construct a single provider by id (None if unknown/unconfigured). Used by
+    the web layer to browse or transfer one specific service."""
+    builder = _REGISTRY.get(provider_id)
+    return builder(opts, sp) if builder else None
 
 
 def build_peers(opts, sp):
