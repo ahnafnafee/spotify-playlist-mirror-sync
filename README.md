@@ -16,34 +16,43 @@ and a change made on *any* provider propagates to the others.
 ## Web GUI (self-hosted)
 
 Prefer clicking to editing `.env`? A built-in web app (FastAPI + a React SPA)
-lets you connect each service in your browser, choose what syncs, run a pass on
-demand, and watch every match/add/remove stream live.
+lets you connect each service in your browser, set up one or more syncs,
+transfer playlists between services, run a pass on demand, and watch every
+match/add/remove stream live.
 
 ```bash
-docker compose up -d          # then open http://<host>:8080
+docker compose up -d          # then open http://<host>:8888 and set it up in the browser
 ```
 
 Or run it directly:
 
 ```bash
 uv sync
-uv run uvicorn omni_sync.web:app --host 0.0.0.0 --port 8080
+uv run uvicorn omni_sync.web:app --host 0.0.0.0 --port 8080   # then open http://127.0.0.1:8080
 # frontend hot-reload during development: pnpm -C frontend install && pnpm -C frontend dev
 ```
 
 - **Connect accounts in the browser** — one-click OAuth for Spotify and YouTube
   Music (you supply your own app's client id/secret once), guided token paste for
-  Apple Music, an API key for Jellyfin. No hand-editing `.env`.
+  Apple Music, an API key for Jellyfin. The wizard shows the exact redirect URI to
+  whitelist. No hand-editing `.env`.
+- **Set up multiple named syncs** — a step-by-step wizard builds each one (one-way
+  from any source, or N-way), with its own participating services, playlist scope,
+  schedule, and safety caps. Every sync runs on its own timer, and active syncs
+  show on the dashboard.
 - **Pair playlists across services** — browse each service's playlists and
   explicitly link differently-named ones (e.g. Spotify "Workout" ↔ Apple "Gym
   Music"), overriding the default same-name matching.
 - **Transfer a playlist one-off** — copy any playlist from one service to another
-  (into a new destination or an existing one), watch it live, and review any tracks
-  that couldn't be matched.
+  (into a new destination or an existing one) with a live progress bar, and pause,
+  resume, or stop it mid-copy. Ongoing transfers show on the dashboard, so they
+  keep running after you close the tab.
+- **Followed playlists too** — playlists you follow but don't own can be synced and
+  transferred, not just ones you created.
 - **Live sync view** — a real-time feed of matches, adds, removals, and holds as a
   pass runs, with per-service counters.
-- **Run now or on a schedule** — the web app owns the schedule and one-off runs;
-  dry-run by default.
+- **Dry-run by default** — run any sync on demand or let its schedule fire; every
+  pass previews before it writes.
 - **Responsive** — works on a phone.
 
 > **Security:** the UI has no login and stores your service credentials on disk
@@ -171,11 +180,17 @@ Optional (defaults in `.env.example`):
 1. Go to <https://developer.spotify.com/dashboard>
 2. Create an app
 3. Copy `Client ID` and `Client Secret`
-4. Add redirect URI: `http://127.0.0.1:8888/callback`
+4. Add a redirect URI:
+   - **Web UI** — whatever the connect wizard shows you: the app's own callback on
+     the port you open it on, e.g. `http://127.0.0.1:8888/oauth/spotify/callback`
+     (Docker) or `http://127.0.0.1:8080/oauth/spotify/callback` (direct run).
+   - **CLI** — `http://127.0.0.1:8888/callback`, or match your `SPOTIFY_REDIRECT_URI`.
 
-The script only requests the `playlist-read-private` scope — it never modifies
-anything on Spotify. (Collaborative playlists aren't visible under this scope;
-add `playlist-read-collaborative` in `spotify_client()` if you need them.)
+Spotify only allows an `http` redirect on the loopback IP, so authorize via
+`http://127.0.0.1:<port>`, not a LAN IP. The CLI reads Spotify **read-only**
+(`playlist-read-private`) in one-way mode and adds `playlist-modify-*` for N-way;
+the web UI requests read + write up front, since Spotify is a write target in any
+N-way sync or a one-way sync sourced from another provider.
 
 ## Apple token retrieval
 
@@ -222,38 +237,33 @@ uv run main.py --execute --max-adds 500               # one-off larger backfill
 First run opens a browser once for Spotify OAuth; the token is cached (default
 `.cache`) and auto-refreshes afterwards.
 
-## Always running: Docker
+## Always running: Docker (recommended)
 
-The container runs as **`omni-playlist-sync`** in the compose group
-**`omni-playlist-sync`**, loops `--execute` every `SYNC_INTERVAL`,
-and persists auth + caches in `./data`.
-
-**Seed the Spotify token first** — the container can't open a browser, so it
-needs a cached token at `data/spotify_token_cache`. Either copy the one a
-direct `uv run main.py` already created:
+The Docker container is the easiest way to run Omni Playlist Sync: it serves the
+web UI, runs your syncs on their schedules, and restarts with the host. It runs
+as **`omni-playlist-sync`** and persists all auth + caches in `./data`.
 
 ```bash
-cp .cache data/spotify_token_cache          # PowerShell: copy .cache data\spotify_token_cache
+docker compose up -d --build     # build + start in the background
+# open http://<host>:8888 and connect your services + create syncs in the browser
+docker compose logs -f           # watch it work
 ```
 
-…or generate it fresh:
+**No `.env` is needed to start** — everything is configured in the browser and
+saved under `./data`. Connect Spotify / YouTube Music with one-click OAuth (the
+wizard shows the exact redirect URI to whitelist), paste your Apple Music tokens,
+add a Jellyfin API key — all from the Accounts page — then build your syncs on the
+Sync page.
 
-```bash
-SPOTIFY_TOKEN_CACHE=data/spotify_token_cache uv run main.py
-```
-
-For the YouTube Music mirror, also put its auth at `data/ytmusic_oauth.json` and
-set the OAuth env vars — see [YouTube Music mirror](#youtube-music-mirror-optional).
-
-**Downloads**: set `DOWNLOAD_DIR` in `.env` to your host music dir (e.g.
-`F:\Torrent\Music`) — compose bind-mounts it to `/music` in the container
-automatically (the Windows path in `.env` is overridden to `/music` inside).
-From Docker, `JELLYFIN_URL` should be `http://host.docker.internal:8096`.
-
-```bash
-docker compose up -d --build
-docker compose logs -f
-```
+- **Port** — the UI is published on host **8888** (the `8888:8080` mapping in
+  `docker-compose.yml`; change the host side if it clashes). **LAN-only** — don't
+  port-forward it to the internet; the UI has no login yet.
+- **Persistence** — `./data` holds credentials, tokens, caches, and the song
+  archive. Back it up to keep your setup across rebuilds.
+- **Downloads** — set `DOWNLOAD_DIR` (in `.env` or your shell) to your host music
+  dir (e.g. `F:\Torrent\Music`); compose bind-mounts it to `/music` in the
+  container. From Docker, set `JELLYFIN_URL` to `http://host.docker.internal:8096`.
+- **Expired Apple tokens** — re-paste them on the Accounts page; no restart needed.
 
 ## Always running: Windows Task Scheduler
 
@@ -329,13 +339,13 @@ SYNC_MODE=nway
 PROVIDERS=spotify,apple,ytmusic   # which peers participate
 ```
 
-**One-time cost — Spotify re-auth.** N-way needs to *write* to Spotify, which
-adds the `playlist-modify-*` scopes. Changing the scope invalidates the cached
-token, so you re-authorize once: delete the token cache
-(`data/spotify_token_cache`) and run a pass so the OAuth flow re-runs (seed it
-the same way as the [initial Docker token](#always-running-docker) — the
-container can't open a browser). Until you do, N-way writes to Spotify fail
-closed with a clear message.
+**One-time cost — Spotify re-auth (CLI only).** N-way needs to *write* to
+Spotify. If you connected Spotify in the **web UI**, it already requested the
+`playlist-modify-*` scopes, so there's nothing to do. On the **CLI**, the default
+token is read-only; switching to N-way changes the scope, which invalidates the
+cached token — delete it (`data/spotify_token_cache`) and run a pass so the OAuth
+flow re-runs. Until you do, N-way writes to Spotify fail closed with a clear
+message.
 
 **Always dry-run first.** Run without `--execute` and read the plan — it prints
 every proposed add/remove on every provider before anything is written.
@@ -543,28 +553,42 @@ Removals are destructive, so they're guarded:
 
 ## Project layout
 
-Runnable as `uv run main.py` (thin shim) or `python -m omni_sync`.
+CLI entry: `uv run main.py` (thin shim) or `python -m omni_sync`. Web entry:
+`omni_sync.web:app`.
 
 ```text
 omni_sync/
-  cli.py         # entry: parse args, run once or loop
-  runner.py      # build targets, run each in its own thread, then downloads
-  config.py      # constants, env, CLI options
-  spotify.py     # read-only source: client, playlists, tracks
-  matching.py    # normalize / romanize / score / diff / removal guards
-  archive.py     # SQLite: song archive + id links + snapshot state
-  logs.py        # colourised, thread-safe, severity-tagged logging
-  downloads.py   # spotDL local mirror + covers
-  targets/
-    base.py      # MirrorTarget interface + the shared mirror_pair loop
-    apple.py     # Apple Music (amp-api)
-    ytmusic.py   # YouTube Music (ytmusicapi)
+  cli.py            # CLI entry: parse args, run once or loop
+  engine/           # provider-agnostic sync core (no web deps)
+    runner.py       # build targets, run each pass (one-way + N-way)
+    config.py       # constants, env, CLI options
+    spotify.py      # Spotify source (+ spotify_web.py web-player fallback read)
+    matching.py     # normalize / romanize / score / diff / removal guards
+    archive.py      # SQLite: song archive + id links + snapshot state
+    downloads.py    # spotDL local mirror + covers
+    jellyfin.py     # browse playlists + push covers
+    targets/        # one MirrorTarget per writable service
+      base.py       # MirrorTarget interface + shared mirror_pair / reconcile
+      apple.py      # Apple Music (amp-api)
+      ytmusic.py    # YouTube Music (YouTube Data API v3)
+      spotify_target.py   # Spotify as a writable peer (N-way)
+  services/         # stateful app services over the engine
+    accounts/       # per-service connectors (OAuth / token paste / api key)
+    settings.py     # managed env store (wizard-saved config)
+    syncs.py        # multiple named sync configs
+    sync_service.py # per-job schedulers, single-writer lock
+    transfers.py    # one-off cross-service copies (+ pause/resume/stop)
+    playlists.py    # browse + explicit cross-service pairing
+    events.py       # in-process event bus for the live feed
+  web/              # FastAPI app: thin HTTP/SSE over services/ (never the engine)
+    routers/        # accounts, syncs, sync, transfers, playlists, settings, events
 ```
 
 **Adding a service** (Tidal, Deezer, ...): subclass `MirrorTarget`, implement
 ~8 methods (`list_playlists`, `playlist_tracks`, `track_id`, `resolve`, `add`,
-`remove`, `create`, `is_editable`), and add its builder to
-`targets/build_targets`. All the reconciliation — diff, ordering, safety rails,
+`remove`, `create`, `is_editable`), add its builder to `engine/targets`'
+`_REGISTRY`, and add a matching `Connector` under `services/accounts` so the
+wizard can connect it. All the reconciliation — diff, ordering, safety rails,
 logging, stats, snapshot-skip — is inherited from `base.mirror_pair`.
 
 ## Self-check
