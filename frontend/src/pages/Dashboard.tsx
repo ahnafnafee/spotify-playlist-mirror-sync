@@ -1,6 +1,7 @@
 import { Hero } from '@/components/dashboard/Hero'
 import { LiveFeed } from '@/components/dashboard/LiveFeed'
 import { NeedsALook } from '@/components/dashboard/NeedsALook'
+import { OngoingTransfers } from '@/components/dashboard/OngoingTransfers'
 import { SyncControlCard } from '@/components/dashboard/SyncControlCard'
 import { SyncsPanel } from '@/components/dashboard/SyncsPanel'
 import { YourServices } from '@/components/dashboard/YourServices'
@@ -36,6 +37,8 @@ export default function Dashboard() {
       <NeedsALook accounts={accounts} status={status} />
 
       <SyncsPanel syncs={syncs} status={status} accounts={accounts} onChanged={refreshAll} />
+
+      <OngoingTransfers />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.65fr_1fr] lg:items-start">
         <Card className="flex flex-col gap-3 overflow-hidden p-4 sm:p-5">

@@ -18,6 +18,7 @@ import type {
   SyncJob,
   SyncJobUpsertRequest,
   SyncStatus,
+  TransferControlResponse,
   TransferJob,
 } from './types'
 
@@ -104,6 +105,12 @@ export const api = {
   // Transfers (one-off playlist copy)
   startTransfer: (body: StartTransferRequest) => request<StartTransferResponse>('/api/transfers', json(body)),
   getTransfer: (id: string) => request<TransferJob>(`/api/transfers/${encodeURIComponent(id)}`),
+  /** Active jobs only (queued/running/paused) — the dashboard's "Ongoing
+   * transfers" list. */
+  listTransfers: () => request<TransferJob[]>('/api/transfers'),
+  pauseTransfer: (id: string) => request<TransferControlResponse>(`/api/transfers/${encodeURIComponent(id)}/pause`, { method: 'POST' }),
+  resumeTransfer: (id: string) => request<TransferControlResponse>(`/api/transfers/${encodeURIComponent(id)}/resume`, { method: 'POST' }),
+  stopTransfer: (id: string) => request<TransferControlResponse>(`/api/transfers/${encodeURIComponent(id)}/stop`, { method: 'POST' }),
   resolveTransferConflict: (id: string, body: ResolveConflictRequest) =>
     request<OkResponse>(`/api/transfers/${encodeURIComponent(id)}/resolve`, json(body)),
 }

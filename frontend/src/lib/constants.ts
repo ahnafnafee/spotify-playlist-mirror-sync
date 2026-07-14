@@ -21,7 +21,9 @@ export const TRANSFER_STATUS_STYLES: Record<TransferStatus, StateStyle> = {
   queued: { label: 'Queued', glyph: '·', badge: 'bg-neutral-soft text-neutral', text: 'text-neutral' },
   busy: { label: 'Waiting for the sync engine…', glyph: '~', badge: 'bg-warning-soft text-warning', text: 'text-warning' },
   running: { label: 'Running…', glyph: '…', badge: 'bg-accent-soft text-accent', text: 'text-accent' },
+  paused: { label: 'Paused', glyph: '‖', badge: 'bg-neutral-soft text-neutral', text: 'text-neutral' },
   done: { label: 'Done', glyph: '✓', badge: 'bg-success-soft text-success', text: 'text-success' },
+  stopped: { label: 'Stopped', glyph: '■', badge: 'bg-neutral-soft text-neutral', text: 'text-neutral' },
   error: { label: 'Error', glyph: '!', badge: 'bg-danger-soft text-danger', text: 'text-danger' },
 }
 

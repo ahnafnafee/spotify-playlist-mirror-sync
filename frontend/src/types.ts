@@ -205,7 +205,7 @@ export interface LinkUpsertRequest {
   enabled: boolean
 }
 
-export type TransferStatus = 'queued' | 'running' | 'done' | 'error' | 'busy'
+export type TransferStatus = 'queued' | 'running' | 'done' | 'error' | 'busy' | 'paused' | 'stopped'
 
 export interface TransferEndpoint {
   provider: string
@@ -257,4 +257,11 @@ export interface StartTransferResponse {
 export interface ResolveConflictRequest {
   key: string
   dest_id: string
+}
+
+/** POST /api/transfers/{id}/pause|resume|stop — `ok: false` when the action
+ * doesn't apply to the job's current status (e.g. pausing one that isn't
+ * running), rather than an HTTP error. */
+export interface TransferControlResponse {
+  ok: boolean
 }

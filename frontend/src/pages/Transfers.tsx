@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 
+import { api } from '@/api'
 import { ConflictList } from '@/components/transfers/ConflictList'
 import { TransferLiveFeed } from '@/components/transfers/TransferLiveFeed'
 import { TransferProgress } from '@/components/transfers/TransferProgress'
@@ -53,7 +54,28 @@ export default function Transfers() {
 
       {jobId && (
         <>
-          <TransferProgress job={job} error={jobError} />
+          <TransferProgress
+            job={job}
+            error={jobError}
+            controls={
+              job
+                ? {
+                    onPause: async () => {
+                      await api.pauseTransfer(job.id)
+                      await refreshJob()
+                    },
+                    onResume: async () => {
+                      await api.resumeTransfer(job.id)
+                      await refreshJob()
+                    },
+                    onStop: async () => {
+                      await api.stopTransfer(job.id)
+                      await refreshJob()
+                    },
+                  }
+                : undefined
+            }
+          />
 
           <Card className="p-4 sm:p-6">
             <TransferLiveFeed events={transferEvents} connected={connected} />
