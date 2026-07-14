@@ -64,6 +64,30 @@ def test_connector_token_paths_follow_env(tmp_path, monkeypatch):
     assert YTMusicConnector(store)._auth_file() == str(tmp_path / "yt.json")
 
 
+def test_apple_ensure_storefront_backfills(monkeypatch, tmp_path):
+    # A blank storefront is auto-detected from /v1/me/storefront; an explicit one
+    # is left untouched.
+    from omni_sync.services.accounts.apple import AppleConnector
+
+    store = SettingsStore(dir=tmp_path)
+    store.save({"APPLE_BEARER_TOKEN": "b", "APPLE_USER_TOKEN": "u"})
+
+    class FakeResp:
+        ok = True
+
+        @staticmethod
+        def json():
+            return {"data": [{"id": "bd", "type": "storefronts"}]}
+
+    monkeypatch.setattr("omni_sync.services.accounts.apple.requests.get", lambda *a, **k: FakeResp())
+    AppleConnector(store)._ensure_storefront()
+    assert store.get("APPLE_STOREFRONT") == "bd"
+
+    store.save({"APPLE_STOREFRONT": "gb"})  # explicit value survives
+    AppleConnector(store)._ensure_storefront()
+    assert store.get("APPLE_STOREFRONT") == "gb"
+
+
 def test_spotify_redirect_uri_forces_loopback_ip(tmp_path):
     # Spotify rejects `localhost` for http loopback redirects — the callback URI
     # must be normalized to the explicit 127.0.0.1 IP no matter how the app is
