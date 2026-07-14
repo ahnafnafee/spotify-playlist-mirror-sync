@@ -33,6 +33,14 @@ const FOCUSABLE_SELECTOR =
  * rounded dialog. Only the body scrolls — header and footer stay docked. */
 export function Modal({ open, onClose, title, description, children, footer, widthClassName = 'max-w-lg' }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null)
+  // Read onClose through a ref so the focus/scroll-lock effect can depend on
+  // `open` alone. Callers usually pass onClose as a fresh arrow each render; if
+  // the effect depended on it, every keystroke inside the dialog would re-run it
+  // and dialog.focus() would steal focus off the field being typed in.
+  const onCloseRef = useRef(onClose)
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
 
   useEffect(() => {
     if (!open) return
@@ -42,7 +50,7 @@ export function Modal({ open, onClose, title, description, children, footer, wid
 
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') {
-        onClose()
+        onCloseRef.current()
         return
       }
       if (e.key !== 'Tab' || !dialog) return
@@ -66,7 +74,7 @@ export function Modal({ open, onClose, title, description, children, footer, wid
       document.removeEventListener('keydown', onKeyDown)
       document.body.style.overflow = prevOverflow
     }
-  }, [open, onClose])
+  }, [open])
 
   if (!open) return null
 
