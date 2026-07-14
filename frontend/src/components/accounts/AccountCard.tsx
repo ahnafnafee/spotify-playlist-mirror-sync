@@ -111,6 +111,7 @@ export function AccountCard({ account, onChanged }: { account: Account; onChange
           setWizardOpen(false)
           onChanged()
         }}
+        onChanged={onChanged}
       />
 
       <ConfirmDialog

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { LuCheck, LuChevronDown, LuCircleAlert, LuCircleHelp, LuClipboardPaste, LuExternalLink } from 'react-icons/lu'
+import { LuCheck, LuChevronDown, LuCircleAlert, LuCircleHelp, LuClipboardPaste, LuExternalLink, LuInfinity } from 'react-icons/lu'
 
 import { api, errorMessage } from '@/api'
 import type { Account, AccountField, AccountState, ConnectDeviceResponse, ConnectRedirectResponse } from '@/types'
@@ -20,12 +20,23 @@ interface Props {
    * `state: "connected"`. The parent decides what that means (AccountCard
    * closes the wizard and refreshes the list). */
   onConnected: () => void
+  /** Fired after any other change that should refresh the account list, but
+   * shouldn't close the wizard or show the big "Connected!" confirmation —
+   * currently just YouTube Music's no-quota mode toggle, which is a smaller
+   * in-place setting on an already-configured account. */
+  onChanged: () => void
 }
 
 interface DirectResult {
   state: AccountState
   detail: string | null
 }
+
+/** Exact `detail` string the backend sets on the ytmusic account while
+ * no-quota (browser cookies) mode is active — the same value GET
+ * /api/accounts reports, so this doubles as both the "is it on" check and
+ * the success copy. */
+const YTMUSIC_BROWSER_MODE_DETAIL = 'no-quota (browser cookies) mode'
 
 const AUTH_KIND_TITLES: Record<Account['auth_kind'], string> = {
   oauth_redirect: 'Connect with a browser sign-in',
@@ -186,7 +197,7 @@ const SUCCESS_CLOSE_DELAY_MS = 1100
 const REDIRECT_POLL_INTERVAL_MS = 2500
 const REDIRECT_POLL_TIMEOUT_MS = 5 * 60 * 1000
 
-export function ConnectWizardModal({ account, open, onClose, onConnected }: Props) {
+export function ConnectWizardModal({ account, open, onClose, onConnected, onChanged }: Props) {
   const [values, setValues] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -398,6 +409,8 @@ export function ConnectWizardModal({ account, open, onClose, onConnected }: Prop
                 />
               </>
             )}
+
+            {account.id === 'ytmusic' && <NoQuotaModeSection account={account} onChanged={onChanged} />}
           </>
         )}
       </div>
@@ -559,6 +572,122 @@ function HeaderPasteBox({ fields, onFilled }: { fields: AccountField[]; onFilled
               Couldn't find those headers in the paste.
             </p>
           ))}
+      </div>
+    </details>
+  )
+}
+
+/** YouTube Music-only, optional alternative to the OAuth device flow above:
+ * paste a browser session's request headers so reads/writes route through
+ * it instead of the (daily-capped) Data API. Independent of the OAuth
+ * connection itself — a user can have both, and switch between them any
+ * time — so this renders as its own disclosure below the OAuth step rather
+ * than replacing it. Collapsed by default, matching HeaderPasteBox: it's an
+ * optional enhancement, not required to connect. */
+function NoQuotaModeSection({ account, onChanged }: { account: Account; onChanged: () => void }) {
+  const active = account.detail === YTMUSIC_BROWSER_MODE_DETAIL
+  const [headers, setHeaders] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // A fresh paste box (and no stale error) every time the on/off state
+  // itself flips, whichever side triggered it.
+  useEffect(() => {
+    setHeaders('')
+    setError(null)
+  }, [active])
+
+  async function enable() {
+    setSaving(true)
+    setError(null)
+    try {
+      const res = await api.enableYtmusicBrowserMode(headers)
+      if (res.state === 'connected') onChanged()
+      else setError(res.detail || 'Could not enable no-quota mode with those headers.')
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function disable() {
+    setSaving(true)
+    setError(null)
+    try {
+      await api.disableYtmusicBrowserMode()
+      onChanged()
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <details className="group rounded-control border border-border bg-surface-2/40">
+      <summary className="flex cursor-pointer select-none items-center gap-2 px-3.5 py-2.5 text-sm font-medium text-text-2">
+        <LuInfinity className="size-4 shrink-0 text-text-3" aria-hidden="true" />
+        No-quota mode
+        {active && (
+          <span className="inline-flex h-5 shrink-0 items-center rounded-full bg-success-soft px-2 text-[10.5px] font-semibold text-success">
+            On
+          </span>
+        )}
+        <LuChevronDown
+          className="ml-auto size-4 shrink-0 text-text-3 transition-transform duration-fast group-open:rotate-180"
+          aria-hidden="true"
+        />
+      </summary>
+      <div className="flex flex-col gap-3 border-t border-border px-3.5 py-3">
+        <p className="text-xs leading-relaxed text-text-3">
+          Routes reads and writes through your YT Music browser session instead of the Data API, so large syncs
+          aren't capped by its daily quota. Cookies rotate, so you may need to re-paste occasionally.
+        </p>
+
+        {error && <p className="text-xs text-danger">{error}</p>}
+
+        {active ? (
+          <>
+            <p className="flex items-center gap-1.5 text-xs text-success">
+              <LuCheck className="size-3.5 shrink-0" aria-hidden="true" />
+              No-quota mode is on.
+            </p>
+            <Button variant="secondary" size="sm" onClick={() => void disable()} loading={saving} className="w-fit">
+              Switch back to OAuth
+            </Button>
+          </>
+        ) : (
+          <>
+            <ol className="flex list-decimal flex-col gap-1.5 pl-5 text-[13px] leading-relaxed text-text-2 marker:font-mono marker:text-xs marker:text-text-3">
+              <li className="pl-1">
+                Open <GuideLink href="https://music.youtube.com">music.youtube.com</GuideLink> and sign in.
+              </li>
+              <li className="pl-1">
+                Open your browser's dev tools (<Code>F12</Code>) and pick the <strong>Network</strong> tab.
+              </li>
+              <li className="pl-1">
+                Click any playlist or song, then click any <Code>POST</Code> request to{' '}
+                <Code>music.youtube.com/youtubei/…</Code>.
+              </li>
+              <li className="pl-1">
+                Copy its <strong>Request Headers</strong> (your browser's "Copy request headers" action) and paste
+                them below.
+              </li>
+            </ol>
+            <textarea
+              value={headers}
+              onChange={(e) => setHeaders(e.target.value)}
+              placeholder={'authority: music.youtube.com\ncookie: …\nauthorization: SAPISIDHASH …'}
+              rows={4}
+              aria-label="Raw request headers"
+              className="w-full resize-y rounded-control border border-border-strong bg-field px-3 py-2 font-mono text-xs text-text placeholder:text-text-3 focus:border-accent focus:outline-none"
+            />
+            <Button size="sm" onClick={() => void enable()} loading={saving} disabled={!headers.trim()} className="w-fit">
+              Enable no-quota mode
+            </Button>
+          </>
+        )}
       </div>
     </details>
   )

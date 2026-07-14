@@ -74,6 +74,11 @@ export const api = {
   pollAccount: (id: string, deviceCode: string, interval: number) =>
     request<PollResponse>(`/api/accounts/${id}/poll`, json({ device_code: deviceCode, interval })),
   disconnectAccount: (id: string) => request<OkResponse>(`/api/accounts/${id}`, { method: 'DELETE' }),
+  /** YouTube Music-only "no-quota" mode: routes reads/writes through a pasted
+   * browser session instead of the (daily-capped) Data API. `headers` is the
+   * raw "copy request headers" block from a music.youtube.com XHR. */
+  enableYtmusicBrowserMode: (headers: string) => request<PollResponse>('/api/accounts/ytmusic/browser', json({ headers })),
+  disableYtmusicBrowserMode: () => request<PollResponse>('/api/accounts/ytmusic/browser', { method: 'DELETE' }),
 
   // Settings
   getSettings: () => request<Settings>('/api/settings'),

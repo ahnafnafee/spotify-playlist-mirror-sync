@@ -1101,6 +1101,103 @@ async function main() {
     }
 
     // -----------------------------------------------------------------
+    // YouTube Music "no-quota mode" (browser cookies) - an optional
+    // section below the OAuth device flow. Paste raw request headers ->
+    // POST /api/accounts/ytmusic/browser; bad/rejected headers surface the
+    // error detail, good ones activate it (an "On" badge, a "Switch back to
+    // OAuth" button -> DELETE reverts it). installMocks' own /api/accounts
+    // is a static fixture (fine everywhere else); this test overrides it
+    // with a small stateful version so the "is it on" detail actually
+    // reflects the toggle, matching the real backend contract.
+    // -----------------------------------------------------------------
+    {
+      const context = await browser.newContext()
+      await context.addInitScript(() => window.localStorage.setItem('omni-theme', 'light'))
+      const page = await context.newPage()
+      await installMocks(page)
+
+      let ytmusicBrowserActive = false
+      await page.route('**/api/accounts', async (route) => {
+        if (route.request().method() !== 'GET') return route.fallback()
+        const body = ACCOUNTS.map((a) =>
+          a.id === 'ytmusic' ? { ...a, detail: ytmusicBrowserActive ? 'no-quota (browser cookies) mode' : null } : a,
+        )
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
+      })
+      let lastBrowserPost = null
+      await page.route('**/api/accounts/ytmusic/browser', async (route) => {
+        const method = route.request().method()
+        if (method === 'POST') {
+          lastBrowserPost = JSON.parse(route.request().postData() || '{}')
+          const looksValid = typeof lastBrowserPost.headers === 'string' && lastBrowserPost.headers.includes('cookie:')
+          if (looksValid) {
+            ytmusicBrowserActive = true
+            return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ state: 'connected', detail: 'no-quota (browser cookies) mode' }) })
+          }
+          return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ state: 'error', detail: "Couldn't find a session cookie in those headers." }) })
+        }
+        if (method === 'DELETE') {
+          ytmusicBrowserActive = false
+          return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ state: 'connected', detail: null }) })
+        }
+        return route.fallback()
+      })
+
+      await page.setViewportSize({ width: 1280, height: 900 })
+      await page.goto(BASE_URL + '/accounts', { waitUntil: 'networkidle' })
+      await page.waitForSelector('h1:has-text("Accounts")')
+      await page.getByRole('button', { name: 'Connect', exact: true }).first().click()
+      await page.getByRole('dialog').waitFor()
+
+      // Not getByText(..., {exact:true}): once active the summary also
+      // contains the "On" badge's text, so its full text content is no
+      // longer an exact match for "No-quota mode" alone.
+      const noQuotaSummary = page.locator('summary', { hasText: 'No-quota mode' })
+      await noQuotaSummary.click()
+
+      const ytLink = page.getByRole('link', { name: 'music.youtube.com', exact: true })
+      const ytLinkHref = await ytLink.getAttribute('href')
+      const ytLinkTarget = await ytLink.getAttribute('target')
+      const ytLinkOk = ytLinkHref === 'https://music.youtube.com' && ytLinkTarget === '_blank'
+      console.log(`${ytLinkOk ? 'ok        ' : 'FAIL      '} no-quota mode guide's music.youtube.com is a real new-tab link (href="${ytLinkHref}" target="${ytLinkTarget}")`)
+      if (!ytLinkOk) results.push({ label: 'ytmusic noquota link', overflow: true })
+
+      const headersBox = page.getByRole('textbox', { name: 'Raw request headers', exact: true })
+
+      // Bad paste (no session cookie) -> the error detail surfaces, mode stays off.
+      await headersBox.fill('authority: music.youtube.com\nauthorization: SAPISIDHASH mock')
+      await page.getByRole('button', { name: 'Enable no-quota mode', exact: true }).click()
+      await page.waitForSelector("text=Couldn't find a session cookie")
+      const stillOffAfterBadPaste = (await page.getByText('No-quota mode is on.', { exact: true }).count()) === 0
+      console.log(`${stillOffAfterBadPaste ? 'ok        ' : 'FAIL      '} a rejected paste shows the error detail and does not activate the mode`)
+      if (!stillOffAfterBadPaste) results.push({ label: 'ytmusic noquota bad paste', overflow: true })
+
+      // Good paste -> POST fires with {headers}, success state renders.
+      await headersBox.fill('authority: music.youtube.com\ncookie: SID=abc123; HSID=def456\nauthorization: SAPISIDHASH mock')
+      await page.getByRole('button', { name: 'Enable no-quota mode', exact: true }).click()
+      await page.waitForSelector('text=No-quota mode is on.')
+      const postFiredOk = Boolean(lastBrowserPost && typeof lastBrowserPost.headers === 'string' && lastBrowserPost.headers.includes('cookie:'))
+      console.log(`${postFiredOk ? 'ok        ' : 'FAIL      '} pasting valid headers POSTs {headers} to /api/accounts/ytmusic/browser (got ${JSON.stringify(lastBrowserPost)})`)
+      if (!postFiredOk) results.push({ label: 'ytmusic noquota post body', overflow: true })
+
+      const onBadgeOk = await noQuotaSummary.getByText('On', { exact: true }).isVisible()
+      console.log(`${onBadgeOk ? 'ok        ' : 'FAIL      '} the summary shows an "On" badge once active`)
+      if (!onBadgeOk) results.push({ label: 'ytmusic noquota on badge', overflow: true })
+
+      await checkOverflow(page, 'YouTube Music no-quota mode, active @ 1280', results)
+      await shot(page, 'ytmusic-noquota-active')
+
+      // Disable path: "Switch back to OAuth" -> DELETE reverts it.
+      await page.getByRole('button', { name: 'Switch back to OAuth', exact: true }).click()
+      await page.waitForSelector('text=No-quota mode is on.', { state: 'hidden' })
+      const offAgainOk = await page.getByRole('button', { name: 'Enable no-quota mode', exact: true }).isVisible()
+      console.log(`${offAgainOk ? 'ok        ' : 'FAIL      '} "Switch back to OAuth" (DELETE) reverts to the paste form`)
+      if (!offAgainOk) results.push({ label: 'ytmusic noquota disable', overflow: true })
+
+      await context.close()
+    }
+
+    // -----------------------------------------------------------------
     // Wizard Direction: the configurable one-way "source of truth" picker.
     // Hidden in N-way (job1's fixture mode); appears in one-way, defaults to
     // the job's saved `source` ("apple"), generalizes the Services step's
@@ -1423,6 +1520,66 @@ async function main() {
       await page.waitForSelector('text=Connect an account on the Accounts page to pick playlists')
       await checkOverflow(page, 'Wizard playlist filter, no accounts connected @ 1280', results)
       await shot(page, 'wizard-playlist-picker-no-accounts')
+      await context.close()
+    }
+
+    // -----------------------------------------------------------------
+    // Wizard Playlists (step 3) browses the sync's own source, not always
+    // Spotify. A one-way sync with a non-Spotify source (Apple here) must
+    // request/show that provider's playlists, and react live if the user
+    // goes back and changes the source.
+    // -----------------------------------------------------------------
+    {
+      const context = await browser.newContext()
+      await context.addInitScript(() => window.localStorage.setItem('omni-theme', 'light'))
+      const page = await context.newPage()
+      await installMocks(page)
+      const playlistRequests = []
+      await page.route('**/api/playlists*', async (route) => {
+        playlistRequests.push(new URL(route.request().url()).searchParams.get('provider'))
+        return route.fallback()
+      })
+      await page.setViewportSize({ width: 1280, height: 900 })
+      await page.goto(BASE_URL + '/sync', { waitUntil: 'networkidle' })
+      await page.waitForSelector('h1:has-text("Sync")')
+      await page.getByRole('button', { name: 'New sync', exact: true }).click()
+      await page.getByRole('dialog').waitFor()
+
+      // Direction (step 1): one-way is the default; pick Apple as the source.
+      await page.getByRole('radio', { name: 'Apple Music', exact: true }).click()
+
+      // Playlists (step 3): must browse Apple, not Spotify.
+      await page.getByRole('radio', { name: 'Playlists', exact: true }).click()
+      await page.waitForSelector('text=Rainy Day') // apple-only fixture name
+
+      const appleRequested = playlistRequests.includes('apple')
+      console.log(`${appleRequested ? 'ok        ' : 'FAIL      '} one-way sync with source=apple requests GET /api/playlists?provider=apple (requests: ${JSON.stringify(playlistRequests)})`)
+      if (!appleRequested) results.push({ label: 'wizard playlists provider request apple', overflow: true })
+
+      const headingText = await page.locator('[role="dialog"]').innerText()
+      const showsAppleHeading = headingText.includes('Apple Music playlists')
+      console.log(`${showsAppleHeading ? 'ok        ' : 'FAIL      '} step 3 heading reads "Apple Music playlists", not "Spotify playlists"`)
+      if (!showsAppleHeading) results.push({ label: 'wizard playlists apple heading', overflow: true })
+
+      // "Gym Mix" is Spotify-only in the fixtures - its absence proves this
+      // isn't just the old spotify-preferred picker still showing through.
+      const noSpotifyOnlyName = (await page.getByText('Gym Mix', { exact: true }).count()) === 0
+      console.log(`${noSpotifyOnlyName ? 'ok        ' : 'FAIL      '} step 3 does not show a Spotify-only playlist ("Gym Mix")`)
+      if (!noSpotifyOnlyName) results.push({ label: 'wizard playlists no spotify leak', overflow: true })
+
+      await checkOverflow(page, 'Wizard Playlists (step 3), one-way source=apple @ 1280', results)
+      await shot(page, 'wizard-playlists-source-apple')
+
+      // Go back and switch the source to Spotify - step 3 must react live,
+      // not keep showing Apple's (now-stale) playlists.
+      await page.getByRole('radio', { name: 'Direction', exact: true }).click()
+      await page.getByRole('radio', { name: 'Spotify', exact: true }).click()
+      await page.getByRole('radio', { name: 'Playlists', exact: true }).click()
+      await page.waitForSelector('text=Discover Weekly') // spotify-only fixture name
+      const reactedToSourceChange = (await page.getByText('Rainy Day', { exact: true }).count()) === 0
+      console.log(`${reactedToSourceChange ? 'ok        ' : 'FAIL      '} step 3 reacts live when the source changes back to Spotify (Apple's playlists are gone)`)
+      if (!reactedToSourceChange) results.push({ label: 'wizard playlists source reacts', overflow: true })
+
       await context.close()
     }
 
