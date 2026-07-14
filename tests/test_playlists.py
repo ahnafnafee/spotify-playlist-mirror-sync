@@ -44,6 +44,13 @@ def test_empty_providers_means_all(monkeypatch):
     assert targets.build_peers(opts, sp="client") == ["SP", "APPLE", "YT"]  # every peer
 
 
+def test_blank_storefront_defaults(monkeypatch):
+    # A blank APPLE_STOREFRONT (saved when the Apple connect leaves it empty) must
+    # fall back to the default, not go into the URL and yield /catalog//search (400).
+    monkeypatch.setenv("APPLE_STOREFRONT", "")
+    assert parse_args([]).storefront == "us"
+
+
 def test_browse_normalizes_rows(monkeypatch, tmp_path):
     from omni_sync.services.playlists import PlaylistService
     from omni_sync.services.settings import SettingsStore

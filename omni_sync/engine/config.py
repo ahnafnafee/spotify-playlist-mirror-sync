@@ -82,7 +82,7 @@ def parse_args(argv=None):
     p.add_argument("--refresh-local", action="store_true",
                    help="Only rebuild local playlist files (m3u, covers, mtimes) from already-downloaded "
                         "audio — no spotDL download, no Apple/YT sync. Fast.")
-    p.add_argument("--storefront", default=os.getenv("APPLE_STOREFRONT", DEFAULT_STOREFRONT),
+    p.add_argument("--storefront", default=os.getenv("APPLE_STOREFRONT") or DEFAULT_STOREFRONT,
                    help=f"Apple catalog storefront (default: {DEFAULT_STOREFRONT}).")
     p.add_argument("--cache-file", default=os.getenv("APPLE_CACHE_FILE", DEFAULT_CACHE_FILE),
                    help=f"ISRC/search resolution cache (default: {DEFAULT_CACHE_FILE}).")

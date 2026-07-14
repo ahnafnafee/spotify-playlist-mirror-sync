@@ -37,7 +37,7 @@ class AppleMusicTarget(MirrorTarget):
     source = "apple"
 
     def __init__(self, storefront, cache_file):
-        self.storefront = storefront
+        self.storefront = storefront or "us"  # empty -> a broken /catalog//search URL (400)
         self.cache_file = cache_file
         # One pooled session (keep-alive) for the whole pass — opening a fresh
         # TCP/TLS connection per request is what triggers Apple's connection
