@@ -958,8 +958,14 @@ async function main() {
       await page.waitForSelector('text=Edit "Default"')
 
       // Step 1, Direction: this job's saved mode ("nway") should already be
-      // checked on open.
-      const nwayChecked = await page.getByRole('radio', { name: /Bidirectional/, exact: false }).isChecked()
+      // checked on open. The wizard loads the saved mode via a post-render
+      // effect, so poll for it to settle rather than reading once (which races
+      // the effect and flakes).
+      let nwayChecked = false
+      for (let i = 0; i < 30 && !nwayChecked; i++) {
+        nwayChecked = await page.getByRole('radio', { name: /Bidirectional/, exact: false }).isChecked()
+        if (!nwayChecked) await page.waitForTimeout(100)
+      }
       console.log(`${nwayChecked ? 'ok        ' : 'FAIL      '} Wizard Direction (step 1) shows the job's saved mode checked (N-way)`)
       if (!nwayChecked) results.push({ label: 'wizard direction initial', overflow: true })
       await checkOverflow(page, `Wizard step 1 Direction @ ${width}`, results)
@@ -2380,6 +2386,55 @@ async function main() {
 
       await checkOverflow(page, 'Dashboard multi-sync panel @ 1280', results)
       await shot(page, 'dashboard-syncs-panel')
+      await context.close()
+    }
+
+    // -----------------------------------------------------------------
+    // Hero "last run" line: a failed/preview pass may have no recorded
+    // duration_s. The "· took …" fragment must be omitted entirely rather
+    // than rendering a "NaNm NaNs"-shaped bug.
+    // -----------------------------------------------------------------
+    {
+      const context = await browser.newContext()
+      await context.addInitScript(() => window.localStorage.setItem('omni-theme', 'light'))
+      const page = await context.newPage()
+      await installMocks(page)
+      await page.route('**/api/sync/status', async (route) => {
+        if (route.request().method() !== 'GET') return route.fallback()
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            running: false,
+            mode: null,
+            running_job: null,
+            master: true,
+            scheduled: true,
+            next_run_at: Math.floor(Date.now() / 1000) + 3600,
+            last: { mode: 'nway', execute: false, duration_s: null, ok: false, error: 'Connection reset', per_target: [] },
+            jobs: [],
+          }),
+        })
+      })
+      await page.setViewportSize({ width: 1280, height: 900 })
+      await page.goto(BASE_URL + '/', { waitUntil: 'networkidle' })
+      await page.waitForSelector('text=Last run was a preview')
+
+      const bodyText = await page.locator('body').innerText()
+      const noNaN = !/NaN/.test(bodyText)
+      console.log(`${noNaN ? 'ok        ' : 'FAIL      '} a pass with no duration_s never renders "NaN" anywhere on the dashboard`)
+      if (!noNaN) results.push({ label: 'hero no duration nan', overflow: true })
+
+      const fragmentOmitted = !bodyText.includes('· took')
+      console.log(`${fragmentOmitted ? 'ok        ' : 'FAIL      '} the "· took …" fragment is omitted entirely, not just its number`)
+      if (!fragmentOmitted) results.push({ label: 'hero no duration fragment', overflow: true })
+
+      const exactPreviewText = (await page.getByText('Last run was a preview', { exact: true }).count()) > 0
+      console.log(`${exactPreviewText ? 'ok        ' : 'FAIL      '} renders exactly "Last run was a preview" with nothing trailing it`)
+      if (!exactPreviewText) results.push({ label: 'hero no duration exact text', overflow: true })
+
+      await checkOverflow(page, 'Dashboard hero, pass with no duration @ 1280', results)
+      await shot(page, 'hero-no-duration')
       await context.close()
     }
 
