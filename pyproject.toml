@@ -6,14 +6,29 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "anyascii>=0.3,<1",
+    "fastapi>=0.115",
+    "mutagen>=1.47",
     "python-dotenv>=1.2.2",
+    "python-multipart>=0.0.9",
     "rapidfuzz>=3.9,<4",
     "requests>=2.32.5",
+    "spotifyscraper>=3.9,<4",
     "spotipy>=2.26.0",
+    "uvicorn>=0.32",
     "ytmusicapi>=1.12,<2",
 ]
 
-[project.optional-dependencies]
-download = [
-    "spotdl>=4.5,<5",
+[dependency-groups]
+dev = [
+    "httpx2>=2.5.0",
+    "pytest>=9.1.1",
 ]
+
+# spotDL is intentionally NOT a project dependency: it's a CLI invoked as an
+# isolated external tool (see downloads._spotdl_cmd) so its tight pins never
+# constrain this app's web stack. Install it separately for the local mirror:
+#   uv tool install spotdl    (or: pipx install spotdl)
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]   # so tests/ can import the omni_sync package

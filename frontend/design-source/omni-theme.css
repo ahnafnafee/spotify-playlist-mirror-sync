@@ -1,0 +1,161 @@
+/* ============================================================
+   OMNI PLAYLIST SYNC — design tokens · cat. OPS-001 rev B
+   Tailwind CSS v4 · paste into src/index.css
+   Light values are the defaults; .dark overrides them.
+   Fonts (bundled, no CDN): @fontsource-variable/archivo
+   (wght 100–900 · wdth 62–125), @fontsource/space-mono (400/700)
+   ============================================================ */
+
+@import "tailwindcss";
+
+/* class-based dark mode with prefers-color-scheme as the boot default */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  /* ---- type ---- */
+  --font-sans: "Archivo", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Space Mono", ui-monospace, Menlo, monospace;
+  /* display voice = same Archivo, stretched + heavy + caps:
+     font-stretch: 115–125%; font-weight: 850–900; text-transform: uppercase.
+     For mastheads, big states ("RUNNING…"), empty rooms — never controls. */
+
+  /* ---- surfaces (light · "putty hardware") ---- */
+  --color-bg: #EDE6D8;             /* page */
+  --color-surface: #F8F3E8;        /* cards */
+  --color-surface-2: #EFE8DA;      /* nested / hover / docks */
+  --color-inset: #E2D9C7;          /* wells: feed, code, pair-code */
+  --color-field: #FFFCF4;          /* inputs */
+  --color-border: #CFC4AE;
+  --color-border-strong: #A79A81;
+  --color-overlay: rgb(30 25 20 / 0.45);
+
+  /* ---- text ---- */
+  --color-text: #1B1610;
+  --color-text-2: #4E463B;
+  --color-text-3: #6E6557;
+
+  /* ---- accent · Tangerine (recommended default) ---- */
+  --color-accent: #CE4400;
+  --color-accent-hover: #B93D00;
+  --color-accent-active: #A33600;
+  --color-accent-soft: rgb(206 68 0 / 0.11);
+  --color-on-accent: #FFFFFF;
+
+  /* ---- semantic (each with a -soft tint) ----
+     hold is YELLOW, not amber — so the tangerine accent owns orange. */
+  --color-success: #1B7F4C;  --color-success-soft: rgb(27 127 76 / 0.11);   /* add */
+  --color-danger:  #BE3A4A;  --color-danger-soft:  rgb(190 58 74 / 0.10);   /* remove */
+  --color-warning: #8A6A08;  --color-warning-soft: rgb(138 106 8 / 0.13);   /* hold */
+  --color-neutral: #6E6557;  --color-neutral-soft: rgb(110 101 87 / 0.10);  /* miss */
+  --color-info:    #2F66A8;  --color-info-soft:    rgb(47 102 168 / 0.11);
+
+  /* ---- service identity · dots + badges only, never buttons ---- */
+  --color-svc-spotify:  #128F43;  --color-svc-spotify-soft:  rgb(18 143 67 / 0.11);
+  --color-svc-apple:    #D93043;  --color-svc-apple-soft:    rgb(217 48 67 / 0.10);
+  --color-svc-ytmusic:  #C43227;  --color-svc-ytmusic-soft:  rgb(196 50 39 / 0.10);
+  --color-svc-jellyfin: #7A58C5;  --color-svc-jellyfin-soft: rgb(122 88 197 / 0.11);
+
+  /* ---- radii · squarer = steadier ---- */
+  --radius-chip: 6px;      /* chips, glyph tiles, tracklist numbers */
+  --radius-control: 8px;   /* buttons, inputs, selects */
+  --radius-card: 12px;
+  --radius-modal: 16px;
+  /* pills: rounded-full, reserved for status */
+
+  /* ---- machined-key bevel · every solid button + live toggle ---- */
+  --shadow-key: inset 0 1.5px 0 rgb(255 255 255 / 0.28), inset 0 -2px 0 rgb(0 0 0 / 0.32);
+
+  /* ---- shadows (weight in light theme; dark leans on borders) ---- */
+  --shadow-sm: 0 1px 2px rgb(43 36 26 / 0.06), 0 4px 14px -6px rgb(43 36 26 / 0.10);
+  --shadow-md: 0 6px 18px -6px rgb(43 36 26 / 0.16);
+  --shadow-lg: 0 24px 64px -16px rgb(43 36 26 / 0.30);
+
+  /* ---- motion ---- */
+  --ease-out-quart: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-fast: 120ms;   /* hover, press */
+  --duration-base: 200ms;   /* fades, toggles, feed rows in */
+  --duration-slow: 320ms;   /* modals, drawer */
+}
+
+/* ---- dark theme overrides · "ink & signal lamp" ---- */
+.dark {
+  --color-bg: #121010;
+  --color-surface: #1A1716;
+  --color-surface-2: #231F1D;
+  --color-inset: #0B0A09;
+  --color-field: #161312;
+  --color-border: #322B26;
+  --color-border-strong: #4A4038;
+  --color-overlay: rgb(8 6 5 / 0.64);
+
+  --color-text: #F1EDE5;
+  --color-text-2: #B7AEA2;
+  --color-text-3: #8D8478;
+
+  --color-accent: #FF6B2C;
+  --color-accent-hover: #FF824D;
+  --color-accent-active: #F0570F;
+  --color-accent-soft: rgb(255 107 44 / 0.14);
+  --color-on-accent: #241000;
+
+  --color-success: #5FC985;  --color-success-soft: rgb(95 201 133 / 0.13);
+  --color-danger:  #E5646E;  --color-danger-soft:  rgb(229 100 110 / 0.13);
+  --color-warning: #E9C43C;  --color-warning-soft: rgb(233 196 60 / 0.15);
+  --color-neutral: #9A9186;  --color-neutral-soft: rgb(154 145 134 / 0.13);
+  --color-info:    #7FA9DE;  --color-info-soft:    rgb(127 169 222 / 0.13);
+
+  --color-svc-spotify:  #3BCE6E;  --color-svc-spotify-soft:  rgb(59 206 110 / 0.13);
+  --color-svc-apple:    #FA5C71;  --color-svc-apple-soft:    rgb(250 92 113 / 0.12);
+  --color-svc-ytmusic:  #F4453E;  --color-svc-ytmusic-soft:  rgb(244 69 62 / 0.12);
+  --color-svc-jellyfin: #AE8CEC;  --color-svc-jellyfin-soft: rgb(174 140 236 / 0.13);
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.40);
+  --shadow-md: 0 6px 18px -6px rgb(0 0 0 / 0.45);
+  --shadow-lg: 0 24px 64px -16px rgb(0 0 0 / 0.65);
+}
+
+/* ---- accent alternates (swap the accent block above) ----
+   B · Cobalt        light #3D51C7 / hover #3445AC / active #2A3890 / on #FFFFFF
+                     dark  #7E97FF / hover #98ACFF / active #6A82F2 / on #0A1440
+   C · Signal Teal   light #12747B / hover #0F6369 / active #0C5257 / on #FFFFFF
+                     dark  #46B7BF / hover #63C6CD / active #2FA0A9 / on #08282B
+   NOTE: Cobalt and Teal free the orange band — if you pick either,
+   warning/hold may return to amber (light #8F6A12 · dark #E2B45F).
+   ---------------------------------------------------------- */
+
+/* ---- base ---- */
+@layer base {
+  html { font-family: var(--font-sans); }
+  body { background: var(--color-bg); color: var(--color-text); }
+  :focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-accent);
+    border-radius: var(--radius-control);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+/* ---- component crib sheet (classnames, not css) --------------
+   Button      primary:      bg-accent text-on-accent shadow-(--shadow-key) hover:bg-accent-hover active:bg-accent-active
+               secondary:    bg-surface-2 border border-border-strong text-text
+               ghost:        text-text-2 hover:bg-surface-2
+               danger-ghost: text-danger bg-danger-soft
+               sizes:        h-8 (sm) · h-10 (md) · h-12 (lg, mobile primary) · rounded-(--radius-control)
+   StatusPill  h-[26px] rounded-full px-2.5 text-[12.5px] font-semibold
+               connected bg-success-soft text-success · expired warning · unconfigured neutral · error danger
+   Card        bg-surface border border-border rounded-(--radius-card) shadow-(--shadow-sm) p-5
+   TextField   h-[42px] (h-11 + text-base below md) bg-field border-border-strong rounded-(--radius-control)
+               focus: border-accent + focus ring · error: border-danger + helper text-danger
+   Modal       bg-surface border-border-strong rounded-(--radius-modal) shadow-(--shadow-lg)
+               footer on bg-surface-2 · bottom sheet below md
+   FeedRow     grid-cols-[22px_1fr_auto_auto] · glyph tile 20px rounded-(--radius-chip)
+               add:+ success · remove:− danger · hold:~ warning · miss:× neutral · warn:! warning
+   CountChip   font-mono text-xs font-bold h-6 px-2 rounded-(--radius-chip) bg-*-soft text-*
+   Tracklist   playlist rows lead with a Space Mono index ("01") in text-3 — sleeve style
+   -------------------------------------------------------------- */
