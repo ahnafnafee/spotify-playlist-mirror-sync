@@ -57,10 +57,14 @@ export function Sidebar() {
       {/* Desktop rail */}
       <aside
         className={cn(
-          'sticky top-0 hidden h-dvh shrink-0 flex-col overflow-y-auto border-r border-border bg-surface transition-[width] duration-base lg:flex',
+          // The shell stretches with the flex row so the rail's surface reaches the
+          // page bottom even when content runs taller than the viewport; the inner
+          // column is the sticky, viewport-height part that holds and scrolls the nav.
+          'hidden shrink-0 border-r border-border bg-surface transition-[width] duration-base lg:block',
           collapsed ? 'w-[68px]' : 'w-60',
         )}
       >
+        <div className="sticky top-0 flex h-dvh flex-col overflow-y-auto">
         <div
           className={cn(
             'flex h-16 shrink-0 items-center border-b border-border',
@@ -127,7 +131,7 @@ export function Sidebar() {
             </NavLink>
           ))}
         </nav>
-
+        </div>
       </aside>
 
       {/* Mobile: slim top bar + dropdown drawer */}
