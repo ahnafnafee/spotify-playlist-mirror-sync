@@ -52,13 +52,56 @@ class SpotifyConnector(Connector):
         backend = self._store.get("SPOTIFY_WRITE_BACKEND") or os.getenv("SPOTIFY_WRITE_BACKEND") or "oauth"
         return str(backend).strip().lower() == "cookie"
 
+    def _isrc_app_on(self):
+        return bool(self._store.get("SPOTIFY_ISRC_CLIENTS") or os.getenv("SPOTIFY_ISRC_CLIENTS"))
+
     def status(self) -> ConnStatus:
         if not self._configured("SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET"):
             return ConnStatus("unconfigured")
-        note = " · cookie writes" if self._cookie_on() else ""
+        note = ((" · cookie writes" if self._cookie_on() else "")
+                + (" · ISRC app" if self._isrc_app_on() else ""))
         if os.path.exists(self._token_cache()):
             return ConnStatus("connected", "token present" + note)
         return ConnStatus("unconfigured", "not authorized yet")
+
+    def set_isrc_app(self, client_id: str, client_secret: str) -> ConnStatus:
+        """Store a batch-capable app's credentials for the ISRC /tracks lookup that
+        N-way matching needs. An app (client-credentials) token reads catalog ISRC on
+        a rate bucket SEPARATE from the OAuth user token and the cookie token — so ISRC
+        never hits the per-account penalty box. Validate by minting a token and
+        confirming the BATCH endpoint works (a Development-Mode app 403s there and needs
+        Extended Quota Mode)."""
+        import requests
+
+        client_id, client_secret = (client_id or "").strip(), (client_secret or "").strip()
+        if not client_id or not client_secret:
+            return ConnStatus("error", "paste both the ISRC app's Client ID and secret")
+        try:
+            tok = requests.post(
+                "https://accounts.spotify.com/api/token",
+                data={"grant_type": "client_credentials", "client_id": client_id, "client_secret": client_secret},
+                timeout=20)
+            if tok.status_code != 200:
+                return ConnStatus("error", "Spotify rejected those app credentials — check the Client ID and secret")
+            probe = requests.get(
+                "https://api.spotify.com/v1/tracks", params={"ids": "6pHtgTMzsmP6ccN2ocv7XN"},
+                headers={"Authorization": f"Bearer {tok.json()['access_token']}"}, timeout=20)
+        except Exception as e:
+            return ConnStatus("error", f"could not validate the ISRC app ({e!r})")
+        if probe.status_code == 403:
+            return ConnStatus(
+                "error", "that app 403s on the batch /tracks endpoint — it needs Extended Quota Mode "
+                         "(request it on the app's page at developer.spotify.com)")
+        if probe.status_code not in (200, 429):
+            return ConnStatus("error", f"unexpected response validating the ISRC app ({probe.status_code})")
+        self._store.save({"SPOTIFY_ISRC_CLIENTS": f"{client_id}:{client_secret}"})
+        return ConnStatus("connected", "ISRC app configured")
+
+    def clear_isrc_app(self) -> ConnStatus:
+        """Drop the ISRC app; N-way matching falls back to the OAuth app for /tracks
+        (which works only if that app also has extended quota)."""
+        self._store.save({"SPOTIFY_ISRC_CLIENTS": ""})
+        return self.status()
 
     def enable_cookie(self, sp_dc: str) -> ConnStatus:
         """Turn on the cookie write backend (bypasses Development-Mode 403s on

@@ -29,13 +29,24 @@ def _redirect_uri(request: Request, cid: str) -> str:
 
 @router.get("/api/accounts")
 def list_accounts(request: Request):
+    store = request.app.state.settings
     out = []
     for cid, cls in CONNECTORS.items():
-        c = cls(request.app.state.settings)
+        c = cls(store)
         st = c.status()
+        fields = []
+        for f in c.config_fields:
+            d = asdict(f)
+            cur = store.get(f.key) or ""
+            # Pre-fill on reconnect, but NEVER echo a secret back to the browser —
+            # send its value only when it's non-secret; a `configured` flag lets the
+            # wizard show "saved — leave blank to keep" for a stored secret instead.
+            d["value"] = "" if f.secret else cur
+            d["configured"] = bool(cur)
+            fields.append(d)
         out.append({
             "id": cid, "name": c.name, "auth_kind": c.auth_kind,
-            "fields": [asdict(f) for f in c.config_fields],
+            "fields": fields,
             "state": st.state, "detail": st.detail,
             # Browse-only services (Jellyfin) can't be a sync/transfer peer — the
             # UI filters its source/destination pickers on this.
@@ -127,4 +138,19 @@ async def spotify_enable_cookie(request: Request, body: dict = Body(...)):
 def spotify_disable_cookie(request: Request):
     """Revert Spotify writes to the OAuth dev app."""
     st = _conn(request, "spotify").disable_cookie()
+    return {"state": st.state, "detail": st.detail}
+
+
+@router.post("/api/accounts/spotify/isrc-app")
+async def spotify_set_isrc_app(request: Request, body: dict = Body(...)):
+    """Store a batch-capable (extended-quota) app for the ISRC /tracks lookup N-way
+    matching needs — a rate bucket separate from the OAuth user token + cookie token."""
+    st = _conn(request, "spotify").set_isrc_app(body.get("client_id", ""), body.get("client_secret", ""))
+    return {"state": st.state, "detail": st.detail}
+
+
+@router.delete("/api/accounts/spotify/isrc-app")
+def spotify_clear_isrc_app(request: Request):
+    """Drop the ISRC app (falls back to the OAuth app for /tracks)."""
+    st = _conn(request, "spotify").clear_isrc_app()
     return {"state": st.state, "detail": st.detail}

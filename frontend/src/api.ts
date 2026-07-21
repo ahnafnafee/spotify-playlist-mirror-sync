@@ -85,6 +85,12 @@ export const api = {
   enableSpotifyCookieMode: (spDc: string) => request<PollResponse>('/api/accounts/spotify/cookie', json({ sp_dc: spDc })),
   disableSpotifyCookieMode: () => request<PollResponse>('/api/accounts/spotify/cookie', { method: 'DELETE' }),
 
+  /** A second Spotify app (Extended Quota Mode) used only for ISRC /tracks lookups —
+   * a rate bucket separate from the OAuth user token, needed for reliable N-way matching. */
+  setSpotifyIsrcApp: (clientId: string, clientSecret: string) =>
+    request<PollResponse>('/api/accounts/spotify/isrc-app', json({ client_id: clientId, client_secret: clientSecret })),
+  clearSpotifyIsrcApp: () => request<PollResponse>('/api/accounts/spotify/isrc-app', { method: 'DELETE' }),
+
   // Settings
   getSettings: () => request<Settings>('/api/settings'),
   saveSettings: (values: Settings) => request<OkResponse>('/api/settings', { method: 'PUT', body: JSON.stringify(values) }),

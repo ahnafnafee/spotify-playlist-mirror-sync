@@ -12,6 +12,10 @@ export interface AccountField {
   secret: boolean
   help: string
   required: boolean
+  /** Current stored value, pre-filled on reconnect — empty for secrets (never echoed). */
+  value?: string
+  /** Whether a value is already stored (so a secret can show "leave blank to keep"). */
+  configured?: boolean
 }
 
 export interface Account {

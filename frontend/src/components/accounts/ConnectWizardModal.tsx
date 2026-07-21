@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { LuCheck, LuChevronDown, LuCircleAlert, LuCircleHelp, LuClipboardPaste, LuExternalLink, LuInfinity } from 'react-icons/lu'
+import { LuCheck, LuChevronDown, LuCircleAlert, LuCircleHelp, LuClipboardPaste, LuExternalLink, LuInfinity, LuKeyRound } from 'react-icons/lu'
 
 import { api, errorMessage } from '@/api'
 import type { Account, AccountField, AccountState, ConnectDeviceResponse, ConnectRedirectResponse } from '@/types'
@@ -216,18 +216,28 @@ export function ConnectWizardModal({ account, open, onClose, onConnected, onChan
     onConnectedRef.current = onConnected
   }, [onConnected])
 
-  // Fresh state every time the wizard is opened, so a previous run's
-  // redirect/device info never leaks into a new attempt.
+  // Fresh state every time the wizard is opened. Pre-fill already-stored config so a
+  // reconnect doesn't force re-typing everything — non-secret values come down from the
+  // backend; secrets stay blank (never echoed) with a "leave blank to keep" hint below.
   useEffect(() => {
     if (!open) return
-    setValues({})
+    const initial: Record<string, string> = {}
+    for (const f of account.fields) if (f.value) initial[f.key] = f.value
+    setValues(initial)
     setSaving(false)
     setError(null)
     setRedirectInfo(null)
     setDeviceInfo(null)
     setDirectResult(null)
     setShowSuccess(false)
+    // account.fields intentionally omitted — this snapshots the stored values on open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, account.id])
+
+  // OAuth connectors persist config and reuse it, so a reconnect may leave an
+  // already-stored secret blank to keep it. token_paste/api_key submit values straight
+  // to /connect, so those always need the actual values entered.
+  const canKeepBlank = account.auth_kind === 'oauth_redirect' || account.auth_kind === 'oauth_device'
 
   // Briefly confirm success before handing control back to the parent, which
   // closes the wizard — so "Connected!" is actually visible for a beat
@@ -239,8 +249,8 @@ export function ConnectWizardModal({ account, open, onClose, onConnected, onChan
   }, [showSuccess])
 
   const requiredMissing = useMemo(
-    () => account.fields.some((f) => f.required && !values[f.key]?.trim()),
-    [account.fields, values],
+    () => account.fields.some((f) => f.required && !(canKeepBlank && f.configured) && !values[f.key]?.trim()),
+    [account.fields, values, canKeepBlank],
   )
 
   // oauth_device: once we have a device code, poll until the user authorizes
@@ -317,7 +327,13 @@ export function ConnectWizardModal({ account, open, onClose, onConnected, onChan
     setError(null)
     try {
       if (account.fields.length > 0) {
-        await api.saveAccountConfig(account.id, values)
+        // Don't overwrite a stored secret with a blank the user left in place to keep it.
+        const payload = Object.fromEntries(
+          account.fields
+            .filter((f) => !(f.secret && f.configured && !(values[f.key] ?? '').trim()))
+            .map((f) => [f.key, values[f.key] ?? '']),
+        )
+        await api.saveAccountConfig(account.id, payload)
       }
       const res = await api.connectAccount(account.id)
       if (res.kind === 'redirect') setRedirectInfo(res)
@@ -413,7 +429,16 @@ export function ConnectWizardModal({ account, open, onClose, onConnected, onChan
             )}
 
             {account.id === 'ytmusic' && <NoQuotaModeSection account={account} onChanged={onChanged} />}
+            {account.id === 'spotify' && (
+              <p className="rounded-control border border-border bg-inset px-3 py-2.5 text-xs leading-relaxed text-text-3">
+                <strong className="text-text-2">Bidirectional (N-way) sync uses all three:</strong> the OAuth login
+                above, <strong>Cookie write mode</strong> (Spotify reads + writes), and an{' '}
+                <strong>ISRC lookup app</strong> (cross-service track matching). One-way mirroring and one-off transfers
+                need only the OAuth login.
+              </p>
+            )}
             {account.id === 'spotify' && <CookieWriteSection account={account} onChanged={onChanged} />}
+            {account.id === 'spotify' && <IsrcAppSection account={account} onChanged={onChanged} />}
           </>
         )}
       </div>
@@ -439,6 +464,7 @@ function FieldsStep({
   submitLabel: string
 }) {
   const guide = CONNECT_GUIDES[account.id]
+  const canKeepBlank = account.auth_kind === 'oauth_redirect' || account.auth_kind === 'oauth_device'
   return (
     <form
       className="flex flex-col gap-4"
@@ -454,18 +480,22 @@ function FieldsStep({
           for (const [key, value] of Object.entries(filled)) onChange(key, value)
         }}
       />
-      {account.fields.map((field) => (
-        <TextField
-          key={field.key}
-          label={field.label}
-          help={field.help || undefined}
-          type={field.secret ? 'password' : 'text'}
-          required={field.required}
-          autoComplete="off"
-          value={values[field.key] ?? ''}
-          onChange={(e) => onChange(field.key, e.target.value)}
-        />
-      ))}
+      {account.fields.map((field) => {
+        const keepable = canKeepBlank && field.configured
+        return (
+          <TextField
+            key={field.key}
+            label={field.label}
+            help={field.help || undefined}
+            type={field.secret ? 'password' : 'text'}
+            required={field.required && !keepable}
+            placeholder={keepable && field.secret ? 'saved — leave blank to keep' : undefined}
+            autoComplete="off"
+            value={values[field.key] ?? ''}
+            onChange={(e) => onChange(field.key, e.target.value)}
+          />
+        )
+      })}
       <div className="flex justify-end">
         <Button type="submit" loading={loading} disabled={disabled}>
           {submitLabel}
@@ -797,6 +827,134 @@ function CookieWriteSection({ account, onChanged }: { account: Account; onChange
             />
             <Button size="sm" onClick={() => void enable()} loading={saving} disabled={!spDc.trim()} className="w-fit">
               Enable cookie write mode
+            </Button>
+          </>
+        )}
+      </div>
+    </details>
+  )
+}
+
+/** Spotify ISRC lookup app: a SECOND Spotify app (Extended Quota Mode) whose
+ * client-credentials token reads track ISRCs on a rate bucket separate from the OAuth
+ * user token — required for reliable N-way matching (the dev app's user token 403s on
+ * /tracks, and the cookie token there hits a per-account penalty box). Optional add-on
+ * disclosure like CookieWriteSection; "ISRC app" in the account detail marks it on. */
+function IsrcAppSection({ account, onChanged }: { account: Account; onChanged: () => void }) {
+  const active = (account.detail || '').includes('ISRC app')
+  const [clientId, setClientId] = useState('')
+  const [clientSecret, setClientSecret] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setClientId('')
+    setClientSecret('')
+    setError(null)
+  }, [active])
+
+  async function enable() {
+    setSaving(true)
+    setError(null)
+    try {
+      const res = await api.setSpotifyIsrcApp(clientId, clientSecret)
+      if (res.state === 'connected') onChanged()
+      else setError(res.detail || 'Could not configure the ISRC app with those credentials.')
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function clear() {
+    setSaving(true)
+    setError(null)
+    try {
+      await api.clearSpotifyIsrcApp()
+      onChanged()
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <details className="group rounded-control border border-border bg-surface-2/40">
+      <summary className="flex cursor-pointer select-none items-center gap-2 px-3.5 py-2.5 text-sm font-medium text-text-2">
+        <LuKeyRound className="size-4 shrink-0 text-text-3" aria-hidden="true" />
+        ISRC lookup app
+        {active && (
+          <span className="inline-flex h-5 shrink-0 items-center rounded-full bg-success-soft px-2 text-[10.5px] font-semibold text-success">
+            On
+          </span>
+        )}
+        <LuChevronDown
+          className="ml-auto size-4 shrink-0 text-text-3 transition-transform duration-fast group-open:rotate-180"
+          aria-hidden="true"
+        />
+      </summary>
+      <div className="flex flex-col gap-3 border-t border-border px-3.5 py-3">
+        <p className="text-xs leading-relaxed text-text-3">
+          A <strong>second</strong> Spotify app (in <strong>Extended Quota Mode</strong>) used only to read track
+          ISRCs for bidirectional (N-way) matching. Its token reads on a rate limit separate from your main app, so
+          ISRC lookups never stall the sync. Only N-way needs it — one-way mirroring and transfers don't.
+        </p>
+
+        {error && <p className="text-xs text-danger">{error}</p>}
+
+        {active ? (
+          <>
+            <p className="flex items-center gap-1.5 text-xs text-success">
+              <LuCheck className="size-3.5 shrink-0" aria-hidden="true" />
+              ISRC app configured.
+            </p>
+            <Button variant="secondary" size="sm" onClick={() => void clear()} loading={saving} className="w-fit">
+              Remove ISRC app
+            </Button>
+          </>
+        ) : (
+          <>
+            <ol className="flex list-decimal flex-col gap-1.5 pl-5 text-[13px] leading-relaxed text-text-2 marker:font-mono marker:text-xs marker:text-text-3">
+              <li className="pl-1">
+                At the <GuideLink href="https://developer.spotify.com/dashboard">Spotify dashboard</GuideLink>, create
+                a second app (any name).
+              </li>
+              <li className="pl-1">
+                On that app's page request <strong>Extended Quota Mode</strong> — a Development-Mode app 403s on the
+                batch lookup.
+              </li>
+              <li className="pl-1">
+                Copy its <strong>Client ID</strong> and <strong>Client secret</strong> and paste them below.
+              </li>
+            </ol>
+            <input
+              type="text"
+              value={clientId}
+              onChange={(e) => setClientId(e.target.value)}
+              placeholder="ISRC app Client ID"
+              aria-label="ISRC app Client ID"
+              autoComplete="off"
+              className="w-full rounded-control border border-border-strong bg-field px-3 py-2 font-mono text-xs text-text placeholder:text-text-3 focus:border-accent focus:outline-none"
+            />
+            <input
+              type="password"
+              value={clientSecret}
+              onChange={(e) => setClientSecret(e.target.value)}
+              placeholder="ISRC app Client secret"
+              aria-label="ISRC app Client secret"
+              autoComplete="off"
+              className="w-full rounded-control border border-border-strong bg-field px-3 py-2 font-mono text-xs text-text placeholder:text-text-3 focus:border-accent focus:outline-none"
+            />
+            <Button
+              size="sm"
+              onClick={() => void enable()}
+              loading={saving}
+              disabled={!clientId.trim() || !clientSecret.trim()}
+              className="w-fit"
+            >
+              Save ISRC app
             </Button>
           </>
         )}
