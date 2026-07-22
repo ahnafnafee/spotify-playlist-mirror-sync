@@ -11,7 +11,7 @@ AMP = "https://amp-api.music.apple.com/v1"
 REQUEST_TIMEOUT = 30
 
 DEFAULT_INTERVAL = "15m"
-DEFAULT_MAX_REMOVALS = 25
+DEFAULT_MAX_REMOVALS = 0
 DEFAULT_MAX_ADDS = 200
 DEFAULT_CACHE_FILE = "apple_resolve_cache.json"
 DEFAULT_SONG_CACHE_FILE = "song_cache.db"
@@ -98,7 +98,8 @@ def parse_args(argv=None):
     p.add_argument("--playlists", default=os.getenv("PLAYLISTS", ""),
                    help="Comma-separated playlist names to sync (default: every same-named pair).")
     p.add_argument("--max-removals", type=int, default=int(os.getenv("MAX_REMOVALS", DEFAULT_MAX_REMOVALS)),
-                   help=f"Per-playlist removal cap per pass; more than this skips removals (default: {DEFAULT_MAX_REMOVALS}).")
+                   help="Per-playlist removal cap per pass; more than this skips removals. 0 never propagates "
+                        f"removals — a track gone from one service is kept everywhere else (default: {DEFAULT_MAX_REMOVALS}).")
     p.add_argument("--max-adds", type=int, default=int(os.getenv("MAX_ADDS", DEFAULT_MAX_ADDS)),
                    help=f"Per-playlist additions cap per pass; the rest continue next pass (default: {DEFAULT_MAX_ADDS}).")
     p.add_argument("--apply-large-removals", action="store_true", default=os.getenv("APPLY_LARGE_REMOVALS") == "1",

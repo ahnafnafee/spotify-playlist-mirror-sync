@@ -10,10 +10,11 @@ import { ServiceLogo } from '@/components/ui/ServiceLogo'
 import { SettingsGroup } from '@/components/ui/SettingsGroup'
 import { TextField } from '@/components/ui/TextField'
 import { Toggle } from '@/components/ui/Toggle'
+import { Tooltip } from '@/components/ui/Tooltip'
 import { useSettings } from '@/hooks/useSettings'
 import { cn } from '@/lib/cn'
 import { serviceLogoId, tagDot, tagText } from '@/lib/constants'
-import { isValidIntervalText, isValidNonNegativeInt, isValidPositiveInt } from '@/lib/format'
+import { isValidIntervalText, isValidPositiveInt } from '@/lib/format'
 import { buildSyncSummaryRows, enabledProvidersOf, lockedSourceOf, syncPeersOf } from '@/lib/syncSummary'
 import { PlaylistFilterField } from '../settings/PlaylistFilterField'
 import type { Account, SyncJob, SyncJobUpsertRequest, SyncMode } from '@/types'
@@ -30,6 +31,8 @@ interface JobFormState {
   playlists: string
   interval: string
   max_adds: string
+  /** UI-only switch; persisted as max_removals (0 = off, the safe default). */
+  mirror_removals: boolean
   max_removals: string
   apply_large_removals: boolean
   download: boolean
@@ -44,6 +47,7 @@ const NEW_JOB_DEFAULTS: JobFormState = {
   playlists: '',
   interval: '15m',
   max_adds: '200',
+  mirror_removals: false,
   max_removals: '25',
   apply_large_removals: false,
   download: false,
@@ -60,7 +64,9 @@ function formFromJob(job: SyncJob | null): JobFormState {
     playlists: job.playlists,
     interval: job.interval,
     max_adds: String(job.max_adds),
-    max_removals: String(job.max_removals),
+    mirror_removals: job.max_removals > 0,
+    // Keep a sane cap staged so switching mirroring on doesn't start from 0.
+    max_removals: job.max_removals > 0 ? String(job.max_removals) : '25',
     apply_large_removals: job.apply_large_removals,
     download: job.download,
   }
@@ -308,7 +314,7 @@ export function SyncWizard({ open, onClose, job, accounts, onSaved }: Props) {
   const nameValid = form.name.trim().length > 0
   const intervalValid = isValidIntervalText(form.interval)
   const maxAddsValid = isValidPositiveInt(form.max_adds)
-  const maxRemovalsValid = isValidNonNegativeInt(form.max_removals)
+  const maxRemovalsValid = !form.mirror_removals || isValidPositiveInt(form.max_removals)
   const formValid = nameValid && intervalValid && maxAddsValid && maxRemovalsValid
 
   // Only Direction's name (always valid) aside, Schedule (interval) and
@@ -326,8 +332,8 @@ export function SyncWizard({ open, onClose, job, accounts, onSaved }: Props) {
     playlists: form.playlists,
     interval: form.interval,
     max_adds: Number(form.max_adds) || 0,
-    max_removals: Number(form.max_removals) || 0,
-    apply_large_removals: form.apply_large_removals,
+    max_removals: form.mirror_removals ? Number(form.max_removals) || 0 : 0,
+    apply_large_removals: form.mirror_removals && form.apply_large_removals,
     download: form.download,
   }
   const summaryRows = buildSyncSummaryRows(previewJob, syncPeers, settings?.DOWNLOAD_DIR)
@@ -346,8 +352,8 @@ export function SyncWizard({ open, onClose, job, accounts, onSaved }: Props) {
         playlists: form.playlists,
         interval: form.interval,
         max_adds: Number(form.max_adds),
-        max_removals: Number(form.max_removals),
-        apply_large_removals: form.apply_large_removals,
+        max_removals: form.mirror_removals ? Number(form.max_removals) : 0,
+        apply_large_removals: form.mirror_removals && form.apply_large_removals,
         download: form.download,
       }
       if (job) await api.updateSync(job.id, values)
@@ -514,14 +520,16 @@ export function SyncWizard({ open, onClose, job, accounts, onSaved }: Props) {
                     onChange={(e) => setField('max_adds', e.target.value)}
                     error={!maxAddsValid ? 'Enter a whole number of 1 or more.' : undefined}
                   />
-                  <TextField
-                    label="Max removals / pass"
-                    type="number"
-                    min={0}
-                    value={form.max_removals}
-                    onChange={(e) => setField('max_removals', e.target.value)}
-                    error={!maxRemovalsValid ? 'Enter a whole number of 0 or more.' : undefined}
-                  />
+                  {form.mirror_removals && (
+                    <TextField
+                      label="Max removals / pass"
+                      type="number"
+                      min={1}
+                      value={form.max_removals}
+                      onChange={(e) => setField('max_removals', e.target.value)}
+                      error={!maxRemovalsValid ? 'Enter a whole number of 1 or more.' : undefined}
+                    />
+                  )}
                 </div>
                 <div className="flex gap-2.5 rounded-control bg-warning-soft px-3.5 py-2.5">
                   <span className="font-mono text-xs font-semibold text-warning" aria-hidden="true">
@@ -532,12 +540,40 @@ export function SyncWizard({ open, onClose, job, accounts, onSaved }: Props) {
                     instead of writing it. You'll see held rows in the feed and can review before anything is lost.
                   </p>
                 </div>
-                <Toggle
-                  checked={form.apply_large_removals}
-                  onChange={(v) => setField('apply_large_removals', v)}
-                  label="Apply large removals"
-                  description="Off (default): removals beyond the cap are held back for safety. On: they're deleted in capped batches over successive passes until cleared."
-                />
+                <div className="flex items-center gap-3">
+                  <Toggle
+                    className="flex-1"
+                    checked={form.mirror_removals}
+                    onChange={(v) => setField('mirror_removals', v)}
+                    label="Mirror removals"
+                    description="Off (default): a track removed on one service is kept on the others — so a song losing licensing on one platform never disappears everywhere. On: removals sync too, capped per pass."
+                  />
+                  <Tooltip
+                    content={
+                      <>
+                        A track removed on <span className="font-semibold text-text">any</span> service — including one
+                        quietly pulled by a licensing change — is deleted from all the others, and its downloaded copy
+                        goes too. Removals under the cap apply without review.
+                      </>
+                    }
+                  >
+                    <button
+                      type="button"
+                      aria-label="About mirroring removals"
+                      className="cursor-help rounded-full p-1 text-text-3 transition-colors duration-fast hover:text-warning focus-visible:text-warning"
+                    >
+                      <LuInfo size={15} />
+                    </button>
+                  </Tooltip>
+                </div>
+                {form.mirror_removals && (
+                  <Toggle
+                    checked={form.apply_large_removals}
+                    onChange={(v) => setField('apply_large_removals', v)}
+                    label="Apply large removals"
+                    description="Off (default): removals beyond the cap are held back for safety. On: they're deleted in capped batches over successive passes until cleared."
+                  />
+                )}
               </div>
 
               <div className="border-t border-border pt-3.5">

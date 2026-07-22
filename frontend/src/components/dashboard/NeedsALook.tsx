@@ -75,7 +75,7 @@ function buildItems(accounts: Account[] | null, status: SyncStatus | null): Need
       icon: LuTriangleAlert,
       title: `${removalsSkipped} removal${removalsSkipped === 1 ? '' : 's'} held back for safety`,
       description:
-        'They exceeded the per-pass removal cap. Turn on "Apply large removals" for the sync to delete them in batches over the next passes.',
+        'Tracks left a playlist on one service, and this sync isn\'t allowed to delete that many elsewhere. Turn on "Mirror removals" (and raise its cap) on the sync if you want them to follow.',
       action: { label: 'Open sync', to: '/sync' },
     })
   }
