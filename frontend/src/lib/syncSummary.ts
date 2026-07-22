@@ -75,7 +75,13 @@ export function buildSyncSummaryRows(job: SyncJob, peers: Account[], downloadDir
   rows.push({ label: 'Playlists', value: playlistsValue })
 
   const removalNote = job.apply_large_removals ? ' (large removals drained in batches)' : ''
-  rows.push({ label: 'Limits', value: `≤${job.max_adds} adds, ≤${job.max_removals} removals / pass${removalNote}` })
+  rows.push({
+    label: 'Limits',
+    value:
+      job.max_removals > 0
+        ? `≤${job.max_adds} adds, ≤${job.max_removals} removals / pass${removalNote}`
+        : `≤${job.max_adds} adds / pass · removals not mirrored`,
+  })
 
   rows.push({
     label: 'Downloads',

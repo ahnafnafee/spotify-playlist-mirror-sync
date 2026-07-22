@@ -203,7 +203,11 @@ def mirror_pair(target, sp_tracks, sp_playlist, tgt_playlist, cache, songs, *, e
         log_warn(f"{source_name} returned 0 tracks but {target.name} has {len(tgt_tracks)}; skipping all removals this pass", tag=tag)
         removals, guard = [], True
     elif len(removals) > max_removals:
-        if drain_removals:
+        if max_removals == 0:
+            log_warn(f"{len(removals)} removals detected; removal mirroring is off "
+                     "(max removals = 0) — kept everywhere, raise the cap on this sync to apply", tag=tag)
+            removals_skipped, removals, guard = len(removals), [], True
+        elif drain_removals:
             log_warn(f"draining removals — applying {max_removals} now, {len(removals) - max_removals} next pass", tag=tag)
             removals, guard = removals[:max_removals], True
         else:
@@ -514,7 +518,12 @@ def reconcile(peers, name, playlists, caches, songs, *, execute, max_removals, m
             # Cap hit: freezing the baseline (removals_capped) is what keeps a
             # held-back / mid-drain removal from being resurrected via union_prev.
             removals_capped, stats["clean"] = True, False
-            if drain_removals:
+            if max_removals == 0:
+                log_warn(f"{p.name}/{name}: {len(safe)} removals detected; removal mirroring is off "
+                         "(max removals = 0) — kept everywhere, raise the cap on this sync to apply", tag=p.tag)
+                stats["removals_skipped"] += len(safe)
+                safe = []
+            elif drain_removals:
                 log_warn(f"{p.name}/{name}: draining removals — applying {max_removals} now, "
                          f"{len(safe) - max_removals} next pass", tag=p.tag)
                 safe = safe[:max_removals]

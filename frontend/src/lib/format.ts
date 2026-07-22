@@ -78,8 +78,3 @@ export function isValidIntervalText(value: string): boolean {
 export function isValidPositiveInt(value: string): boolean {
   return /^\d+$/.test(value.trim()) && Number(value) >= 1
 }
-
-/** Matches the backend's `--max-removals` validation (config.py: must be >= 0). */
-export function isValidNonNegativeInt(value: string): boolean {
-  return /^\d+$/.test(value.trim())
-}

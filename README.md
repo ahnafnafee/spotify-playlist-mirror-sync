@@ -211,6 +211,7 @@ Bidirectional sync is impossible statelessly, so each logical playlist's canonic
 - **Add-wins** on conflict — losing a song is worse than keeping an extra one.
 - **Read-collapse guard** — if a provider suddenly reads far fewer tracks than the baseline (a transient API hiccup), it's skipped that pass so one bad read can't cascade a mass-delete.
 - **Same rails as one-way** — per-pass `MAX_ADDS` / `MAX_REMOVALS` caps and net-loss protection hold on every write side.
+- **Removals are opt-in** — `MAX_REMOVALS` defaults to 0, so a track that disappears from one provider (deleted there, or silently pulled by licensing) is kept on the others and only logged. Set a cap (or the UI's "Mirror removals" toggle) to propagate deletions.
 
 > **Always dry-run first.** Run without `--execute` (or use **Preview** in the UI) and read the plan — it prints every proposed add/remove on every provider before anything is written.
 
@@ -323,7 +324,7 @@ Removals are destructive, so they're guarded:
 
 - **Dry run is the default** — nothing changes without `--execute` (or the UI's real-sync action).
 - If the source returns 0 tracks for a playlist the target shows as non-empty, removals are skipped that pass (a transient API failure can't empty a playlist).
-- More than `MAX_REMOVALS` pending removals in one pass → removals are skipped and logged.
+- **Removals are off by default** — `MAX_REMOVALS=0` holds every removal back (logged, never applied), so a licensing takedown on one platform can't cascade a deletion to the rest. Opt in per sync with the "Mirror removals" toggle (or set `MAX_REMOVALS`), and even then more pending removals than the cap in one pass → all skipped and logged.
 - More than `MAX_ADDS` pending additions → the rest continue next pass (giant one-burst backfills are what trip bot detection).
 - **Net-loss protection** — a target-side track resembling a source track that has no match on that service is held, not deleted.
 - Any Apple `401/403` aborts the pass immediately — no partial deletes on expired tokens.

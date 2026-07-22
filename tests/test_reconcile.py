@@ -236,6 +236,22 @@ def test_large_removals_held_back_by_default_then_drain_when_opted_in(tmp_path):
     conn.close()
 
 
+def test_removals_never_propagate_at_cap_zero(tmp_path):
+    # max_removals=0 is the "removals off" switch (the default): a track gone
+    # from one provider (user delete or a licensing pull) is kept everywhere
+    # else, surfaced as skipped, and the baseline stays frozen so the held
+    # removal can't resurrect or silently apply later.
+    conn = archive.connect(str(tmp_path / "z.db"))
+    for src in ("spotify", "apple"):
+        archive.set_playlist_state(conn, "mix", src, {f"i:{i}" for i in "ABCD"})
+    sp, ap = _P("spotify", ["A", "B", "C"]), _P("apple", ["A", "B", "C", "D"])  # D dropped on spotify
+    stats = reconcile([sp, ap], "Mix", {"spotify": {"id": "s"}, "apple": {"id": "a"}},
+                      _caches("spotify", "apple"), conn, execute=True, max_removals=0, max_adds=200)
+    assert stats["removals_skipped"] == 1 and ap.removed == []
+    assert archive.get_playlist_state(conn, "mix", "apple") == {f"i:{i}" for i in "ABCD"}  # frozen
+    conn.close()
+
+
 class _VariantPeer:
     """Peer holding ONE copy of a song under provider-flavored metadata
     (decorated title, partial or embellished artist credits). resolve() returns
