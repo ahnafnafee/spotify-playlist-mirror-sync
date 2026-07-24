@@ -183,3 +183,30 @@ def test_mirror_pair_non_spotify_source_never_writes_links(tmp_path):
     assert res["added"] == 1
     assert songs.execute("SELECT COUNT(*) FROM links").fetchone()[0] == 0  # never Spotify-polluted
     songs.close()
+
+
+def test_held_removals_name_the_track_playlist_service_and_reason():
+    from songmirror.engine.targets.base import held_removals
+
+    tracks = [{"name": "Guzarish", "artist": "Sonu Nigam"}]
+    over_cap = held_removals("YouTube Music", "Aurora", tracks, 25)
+    assert over_cap == [{"target": "YouTube Music", "playlist": "Aurora", "track": "Guzarish",
+                         "artist": "Sonu Nigam",
+                         "reason": "the batch was larger than this sync's cap of 25"}]
+    # A cap of zero is a different situation with a different fix, so it reads differently.
+    assert "mirroring is off" in held_removals("Apple Music", "Sleep", tracks, 0)[0]["reason"]
+
+
+def test_summary_detail_is_bounded_but_counts_are_not():
+    dest = []
+    runner._collect_held(dest, [{"track": str(i)} for i in range(runner.HELD_REMOVAL_DETAIL + 20)])
+    runner._collect_held(dest, [{"track": "overflow"}])
+    assert len(dest) == runner.HELD_REMOVAL_DETAIL
+    # The count travels separately, so truncating the listing never understates the total.
+    assert runner._summary_entry("N-way", {"removals_skipped": 999, "held_removals": dest})["removals_skipped"] == 999
+
+
+def test_summary_entry_carries_detail_and_defaults_it_empty():
+    assert runner._summary_entry("N-way", {})["held_removals"] == []
+    entry = runner._summary_entry("N-way", {"held_removals": [{"track": "x"}]})
+    assert entry["held_removals"] == [{"track": "x"}]

@@ -82,6 +82,20 @@ export interface TargetSummary {
   removals_skipped: number
   created: number
   skipped: number
+  /** Which tracks the cap kept, and why. Bounded by the backend, so it can be
+   * shorter than `removals_skipped` — that count remains the total. Absent on
+   * passes recorded before this was reported. */
+  held_removals?: HeldRemoval[]
+}
+
+/** One track a removal cap kept, named with the playlist and service it would
+ * have been deleted from. */
+export interface HeldRemoval {
+  target: string
+  playlist: string
+  track: string
+  artist: string
+  reason: string
 }
 
 export interface PassSummary {

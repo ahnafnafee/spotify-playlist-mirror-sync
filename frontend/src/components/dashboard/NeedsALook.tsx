@@ -9,11 +9,17 @@ import { BUTTON_BASE_CLASSES, BUTTON_SIZE_CLASSES, BUTTON_VARIANT_CLASSES } from
 
 const STORAGE_KEY = 'songmirror-dismissed-alerts'
 
+/** Enough held-back removals to see the pattern without turning a summary card
+ * into a track listing; the remainder is reported as a count. */
+const HELD_REMOVAL_PREVIEW = 6
+
 interface NeedsLookItem {
   key: string
   icon: IconType
   title: string
   description: string
+  /** Specifics behind the headline count — rendered verbatim, one line each. */
+  details?: string[]
   action?: { label: string; to: string }
 }
 
@@ -73,12 +79,24 @@ function buildItems(accounts: Account[] | null, status: SyncStatus | null): Need
 
   const removalsSkipped = status?.last?.per_target.reduce((sum, t) => sum + (t.removals_skipped ?? 0), 0) ?? 0
   if (removalsSkipped > 0) {
+    const listed = status?.last?.per_target.flatMap((t) => t.held_removals ?? []) ?? []
+    // One "why" per distinct cause rather than repeated on every line — a pass
+    // usually hits a single cause, and naming it is what makes the count actionable.
+    const reasons = [...new Set(listed.map((h) => h.reason))]
+    const details = listed
+      .slice(0, HELD_REMOVAL_PREVIEW)
+      .map((h) => `${h.track}${h.artist ? ` — ${h.artist}` : ''} · ${h.playlist} on ${h.target}`)
+    if (listed.length > details.length) {
+      details.push(`+${listed.length - details.length} more`)
+    }
     items.push({
       key: 'removals-skipped',
       icon: LuTriangleAlert,
       title: `${removalsSkipped} removal${removalsSkipped === 1 ? '' : 's'} held back for safety`,
-      description:
-        'Tracks left a playlist on one service, and this sync isn\'t allowed to delete that many elsewhere. Turn on "Mirror removals" (and raise its cap) on the sync if you want them to follow.',
+      description: reasons.length
+        ? `These are still on the services below. Held because ${reasons.join('; and ')}.`
+        : 'Tracks left a playlist on one service, and this sync isn\'t allowed to delete that many elsewhere. Turn on "Mirror removals" (and raise its cap) on the sync if you want them to follow.',
+      details,
       action: { label: 'Open sync', to: '/sync' },
     })
   }
@@ -91,7 +109,7 @@ function buildItems(accounts: Account[] | null, status: SyncStatus | null): Need
  * only silences the exact situation the user saw. Two held removals dismissed,
  * then five held next pass -> a new signature, so it surfaces again. */
 function signature(item: NeedsLookItem): string {
-  return `${item.key}|${item.title}|${item.description}`
+  return `${item.key}|${item.title}|${item.description}|${(item.details ?? []).join(',')}`
 }
 
 /** Never throws — an unavailable or corrupted store just means "nothing
@@ -174,6 +192,15 @@ export function NeedsALook({ accounts, status }: { accounts: Account[] | null; s
             <div className="min-w-0 flex-1">
               <p className="text-sm font-bold text-text">{item.title}</p>
               <p className="text-xs leading-relaxed text-text-2">{item.description}</p>
+              {item.details && item.details.length > 0 && (
+                <ul className="mt-1.5 flex flex-col gap-0.5">
+                  {item.details.map((line) => (
+                    <li key={line} className="truncate font-mono text-[11px] leading-relaxed text-text-3" title={line}>
+                      {line}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
             {item.action && (
               <Link

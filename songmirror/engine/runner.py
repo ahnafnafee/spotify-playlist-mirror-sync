@@ -50,10 +50,22 @@ def save_cache(cache_file, cache):
 _SUMMARY_KEYS = ("added", "removed", "missing", "held", "deferred", "removals_skipped", "created", "skipped")
 
 
+# How many held-back removals travel with a pass summary. The counts above stay
+# authoritative for the total; this only bounds what the UI can list.
+HELD_REMOVAL_DETAIL = 50
+
+
+def _collect_held(dest, records):
+    room = HELD_REMOVAL_DETAIL - len(dest)
+    if room > 0:
+        dest.extend(records[:room])
+
+
 def _summary_entry(name, agg):
     entry = {"name": name}
     for k in _SUMMARY_KEYS:
         entry[k] = agg.get(k, 0)
+    entry["held_removals"] = agg.get("held_removals", [])
     return entry
 
 
@@ -88,8 +100,8 @@ def run_target(target, selected, get_source_tracks, songs, opts, links=None, sou
     id and shares a stable state key. Unlinked playlists take the same name-match
     path (empty `links` => byte-for-byte unchanged when the source is Spotify)."""
     src_key = source.source
-    agg = {"name": target.name, "pairs": 0, "added": 0, "removed": 0,
-           "missing": 0, "held": 0, "removals_skipped": 0, "skipped": 0, "created": 0}
+    agg = {"name": target.name, "pairs": 0, "added": 0, "removed": 0, "missing": 0,
+           "held": 0, "removals_skipped": 0, "skipped": 0, "created": 0, "held_removals": []}
     cache = load_cache(target.cache_file)
     try:
         tgt_by_name = target.list_playlists()
@@ -145,6 +157,7 @@ def run_target(target, selected, get_source_tracks, songs, opts, links=None, sou
                 agg["pairs"] += 1
                 for k in ("added", "removed", "missing", "held", "removals_skipped"):
                     agg[k] += res[k]
+                _collect_held(agg["held_removals"], res.get("held_removals", []))
                 if res["clean"] and snapshot:
                     archive.set_state(songs, state_key, target.source, snapshot, res["target_count"])
             except TargetAuthError:
@@ -353,6 +366,7 @@ def _run_nway(opts, sp, selected, songs, should_continue=None):
     dirs = {p.source: p.list_playlists() for p in peers}
     caches = {p.source: load_cache(p.cache_file) for p in peers}
     total = {"added": 0, "removed": 0, "missing": 0, "held": 0, "deferred": 0, "removals_skipped": 0}
+    held_detail = []  # kept out of `total` so the scalar accumulate loop stays scalar
     try:
         for sp_playlist in selected:
             if should_continue and should_continue() != "run":
@@ -389,6 +403,7 @@ def _run_nway(opts, sp, selected, songs, should_continue=None):
                                   drain_removals=opts.apply_large_removals, should_continue=should_continue)
                 for k in total:
                     total[k] += stats.get(k, 0)
+                _collect_held(held_detail, stats.get("held_removals", []))
             except TargetAuthError:
                 raise
             except Exception as e:
@@ -396,4 +411,5 @@ def _run_nway(opts, sp, selected, songs, should_continue=None):
     finally:
         for p in peers:
             save_cache(p.cache_file, caches[p.source])
+    total["held_removals"] = held_detail
     return [_summary_entry("N-way", total)]
