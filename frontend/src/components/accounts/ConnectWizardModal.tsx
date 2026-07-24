@@ -675,8 +675,15 @@ function NoQuotaModeSection({ account, onChanged }: { account: Account; onChange
       <div className="flex flex-col gap-3 border-t border-border px-3.5 py-3">
         <p className="text-xs leading-relaxed text-text-3">
           Routes reads and writes through your YT Music browser session instead of the Data API, so large syncs
-          aren't capped by its daily quota. Cookies rotate, so you may need to re-paste occasionally.
+          aren't capped by its daily quota. Each pass refreshes the session, so a paste keeps working on its own —
+          you'll only be asked for fresh headers if syncs stop running for several days.
         </p>
+
+        {account.state === 'expired' && (
+          <p className="text-xs leading-relaxed text-warning">
+            The pasted session expired — no-quota mode stays selected, it just needs fresh headers below.
+          </p>
+        )}
 
         {error && <p className="text-xs text-danger">{error}</p>}
 

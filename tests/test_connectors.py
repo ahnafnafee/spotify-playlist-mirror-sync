@@ -73,7 +73,10 @@ def test_ytmusic_enable_disable_browser_mode(tmp_path, monkeypatch):
 
     monkeypatch.setattr(ytmusicapi, "setup", fake_setup)
     monkeypatch.setattr("ytmusicapi.YTMusic",
-                        lambda *a, **k: type("Y", (), {"get_library_playlists": lambda self, limit=None: []})())
+                        lambda *a, **k: type("Y", (), {
+                            "get_library_playlists": lambda self, limit=None: [],
+                            "get_account_info": lambda self: {"accountName": "me"},
+                        })())
 
     assert c.enable_browser("Cookie: x").state == "connected"
     assert c._store.get("YTMUSIC_PREFER_BROWSER") == "1"
@@ -81,3 +84,19 @@ def test_ytmusic_enable_disable_browser_mode(tmp_path, monkeypatch):
     assert c.enable_browser("").state == "error"  # empty paste rejected
     c.disable_browser()
     assert c._store.get("YTMUSIC_PREFER_BROWSER") == "0"
+
+
+def test_ytmusic_expired_cookies_report_expired_not_connected(tmp_path, monkeypatch):
+    # A stale cookie file still parses and answers logged-out, so presence alone
+    # can't mean "connected" — that's what left a dead session syncing silently.
+    import ytmusicapi
+
+    c = _conn("ytmusic", tmp_path)
+    path = tmp_path / "browser.json"
+    path.write_text("{}")
+    monkeypatch.setenv("YTMUSIC_BROWSER_AUTH", str(path))
+    monkeypatch.setenv("YTMUSIC_PREFER_BROWSER", "1")  # env, not the store: monkeypatch undoes it
+
+    monkeypatch.setattr(ytmusicapi, "YTMusic",
+                        lambda *a, **k: type("Y", (), {"get_account_info": lambda self: {}})())
+    assert c.status().state == "expired"  # -> dashboard "sign-in expired" card + Reconnect

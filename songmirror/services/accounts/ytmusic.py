@@ -42,8 +42,22 @@ class YTMusicConnector(Connector):
         pref = str(self._store.get("YTMUSIC_PREFER_BROWSER") or os.getenv("YTMUSIC_PREFER_BROWSER") or "")
         return pref.lower() in ("1", "on", "true", "yes") and os.path.exists(self._browser_path())
 
+    def _browser_alive(self):
+        """Whether the stored cookies still authenticate. The file existing proves
+        nothing — an expired session still parses fine, it just answers every call
+        logged-out, which reads downstream as an empty library rather than an
+        error. Only a real call can tell the two apart."""
+        try:
+            from ytmusicapi import YTMusic
+
+            return bool((YTMusic(self._browser_path()).get_account_info() or {}).get("accountName"))
+        except Exception:
+            return False
+
     def status(self) -> ConnStatus:
         if self._browser_active():
+            if not self._browser_alive():
+                return ConnStatus("expired", "browser cookies expired - paste fresh request headers")
             return ConnStatus("connected", "no-quota (browser cookies) mode")
         if not self._configured("YTMUSIC_OAUTH_CLIENT_ID", "YTMUSIC_OAUTH_CLIENT_SECRET"):
             return ConnStatus("unconfigured")

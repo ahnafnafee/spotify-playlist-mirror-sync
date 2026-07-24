@@ -38,6 +38,50 @@ API = "https://www.googleapis.com/youtube/v3"
 _TOPIC_RE = re.compile(r"\s*-\s*Topic$")
 
 
+ROTATE_URL = "https://accounts.youtube.com/RotateCookies"
+ROTATE_COOKIE = "__Secure-1PSIDTS"
+
+
+def rotate_browser_cookie(auth_file):
+    """Keep a pasted browser session alive by refreshing its one perishable cookie.
+
+    Of everything in a pasted `Cookie:` header, only `__Secure-1PSIDTS` goes
+    stale: Google invalidates it server-side within days, while the signing
+    cookies (SAPISID, __Secure-3PAPISID) stay valid for months. A signed-in
+    browser is continuously reissued one from this endpoint, which is the only
+    reason its session outlives a copied snapshot — so calling it on the same
+    cadence is what lets an unattended paste survive.
+
+    This is a keep-alive, not a repair: an already-expired session is refused,
+    so it has to run well inside the stored cookie's lifetime. Best-effort —
+    a refusal, a rate limit (rotation is throttled) or an offline host leaves
+    the file untouched and the pass runs on the cookie already there.
+    """
+    try:
+        with open(auth_file) as f:
+            auth = json.load(f)
+        pairs = [p.strip().split("=", 1) for p in auth.get("cookie", "").split(";") if "=" in p]
+        jar = dict(pairs)
+        if ROTATE_COOKIE not in jar:
+            return False
+        r = requests.post(
+            ROTATE_URL, cookies=jar, data=json.dumps([0, "-0000000000000000000"]),
+            headers={"Content-Type": "application/json", "User-Agent": auth.get("user-agent", ""),
+                     "Origin": "https://www.youtube.com", "Referer": "https://www.youtube.com/"},
+            timeout=REQUEST_TIMEOUT)
+        issued = r.cookies.get_dict()  # response Set-Cookie only, never the jar we sent
+        if r.status_code != 200 or issued.get(ROTATE_COOKIE, jar[ROTATE_COOKIE]) == jar[ROTATE_COOKIE]:
+            return False
+        auth["cookie"] = "; ".join(f"{k}={issued.get(k, v)}" for k, v in pairs)
+        tmp = f"{auth_file}.tmp"
+        with open(tmp, "w") as f:
+            json.dump(auth, f)
+        os.replace(tmp, auth_file)  # swap whole, so a torn write can't replace a working session
+        return True
+    except (OSError, ValueError, requests.RequestException):
+        return False
+
+
 def build():
     """A ready YT target, or None (logged) when YT isn't set up. Prefers the
     no-quota browser (youtubei) backend when YTMUSIC_PREFER_BROWSER is on and
@@ -46,6 +90,8 @@ def build():
     browser = os.getenv("YTMUSIC_BROWSER_AUTH", "")
     if os.getenv("YTMUSIC_PREFER_BROWSER", "").lower() in ("1", "on", "true", "yes") and browser and os.path.exists(browser):
         try:
+            if rotate_browser_cookie(browser):
+                log_note("refreshed the YouTube Music session cookie", tag="yt")
             return YTMusicBrowserTarget(browser)
         except Exception as e:
             log_warn(f"YouTube Music no-quota (browser) mode failed ({e!r}); falling back to the Data API", tag="yt")
@@ -291,6 +337,18 @@ class YTMusicTarget(MirrorTarget):
         polite_sleep(1.0)
 
 
+def _expired(fn, what):
+    """Translate an expired browser session into the auth error it actually is.
+    A logged-out youtubei response carries no `contents`, which ytmusicapi walks
+    into a bare KeyError — unreadable, and easily mistaken for a broken playlist
+    rather than dead cookies."""
+    try:
+        return fn()
+    except KeyError:
+        raise TargetAuthError(f"YouTube Music session expired while reading {what}; "
+                              "re-export the browser cookies (Settings -> YouTube Music).")
+
+
 class YTMusicBrowserTarget(YTMusicTarget):
     """No-quota YT reads/writes via ytmusicapi's authenticated youtubei API, so a
     large backfill isn't capped at the Data API's ~200 adds/day. Trade-off: the
@@ -305,14 +363,29 @@ class YTMusicBrowserTarget(YTMusicTarget):
         self._ytm = YTMusic()                   # public search (used by inherited resolve/_search)
         self._api = YTMusic(browser_auth_file)  # authenticated reads + writes, no Data API quota
 
+    def _session_alive(self):
+        """Whether the cookies still authenticate. Needed because the logged-out
+        stub reaches ytmusicapi's library parser as an empty list, indistinguishable
+        from an account that genuinely owns no playlists."""
+        try:
+            return bool((self._api.get_account_info() or {}).get("accountName"))
+        except Exception:
+            return False
+
     def list_playlists(self):
         out = {}
-        for pl in self._api.get_library_playlists(limit=None):
+        for pl in _expired(lambda: self._api.get_library_playlists(limit=None), "the library"):
             title = (pl.get("title") or "").strip()
             key = title.casefold()
             if key and key not in out:
                 out[key] = {"playlistId": pl.get("playlistId"), "title": title, "count": pl.get("count"),
                             "thumbnails": pl.get("thumbnails")}  # cover art for browse
+        # An empty read must fail the pass, not report "no playlists" — the caller
+        # creates whatever it can't find, so a degraded read would duplicate every
+        # playlist. Only a live session is allowed to answer "genuinely empty".
+        if not out and not self._session_alive():
+            raise TargetAuthError("YouTube Music returned an empty library on a logged-out session; "
+                                  "re-export the browser cookies (Settings -> YouTube Music).")
         return out
 
     def create(self, sp_playlist):
@@ -325,7 +398,8 @@ class YTMusicBrowserTarget(YTMusicTarget):
         return {"playlistId": pid, "title": sp_playlist.get("name", ""), "count": 0}
 
     def playlist_tracks(self, playlist):
-        data = self._api.get_playlist(playlist["playlistId"], limit=None) or {}
+        data = _expired(lambda: self._api.get_playlist(playlist["playlistId"], limit=None),
+                        f"playlist '{playlist.get('title', '')}'") or {}
         tracks = []
         for t in data.get("tracks") or []:
             vid = t.get("videoId")
